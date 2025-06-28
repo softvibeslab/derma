@@ -231,8 +231,16 @@ export default function Services() {
                         <button
                           onClick={() => openModal(service)}
                           className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
+                          title="Editar servicio"
                         >
                           <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteService(service.id, service.nombre)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
+                          title="Eliminar servicio"
+                        >
+                          <X className="w-4 h-4" />
                         </button>
                       </div>
 

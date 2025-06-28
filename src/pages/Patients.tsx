@@ -356,8 +356,16 @@ export default function Patients() {
                     <button
                       onClick={() => openModal(patient)}
                       className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
+                      title="Editar paciente"
                     >
                       <Edit className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => deletePatient(patient.id, patient.nombre_completo)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
+                      title="Desactivar paciente"
+                    >
+                      <X className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
