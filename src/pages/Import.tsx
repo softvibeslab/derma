@@ -11,7 +11,12 @@ import {
   Calendar,
   CreditCard,
   Scissors,
-  TestTube
+  TestTube,
+  Play,
+  Loader,
+  X,
+  Eye,
+  ArrowRight
 } from 'lucide-react'
 
 interface ImportResult {
@@ -20,67 +25,129 @@ interface ImportResult {
   total: number
 }
 
+interface ImportProgress {
+  current: number
+  total: number
+  currentItem: string
+  status: 'processing' | 'success' | 'error'
+  message: string
+}
+
 export default function Import() {
   const { userProfile } = useAuth()
   const [activeTab, setActiveTab] = useState('patients')
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [previewData, setPreviewData] = useState<any[]>([])
+  const [rawData, setRawData] = useState<any[]>([])
+  const [importStep, setImportStep] = useState<'upload' | 'preview' | 'importing' | 'completed'>('upload')
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
+  const [realTimeLog, setRealTimeLog] = useState<string[]>([])
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: string) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
     setLoading(true)
     setImportResult(null)
     setPreviewData([])
+    setRawData([])
+    setImportStep('upload')
+    setRealTimeLog([])
 
     try {
       const text = await file.text()
       const lines = text.split('\n').filter(line => line.trim())
+      
+      if (lines.length === 0) {
+        throw new Error('El archivo está vacío')
+      }
+
       const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-      const data = lines.slice(1).map(line => {
+      const data = lines.slice(1).map((line, index) => {
         const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
-        const row: any = {}
+        const row: any = { _rowNumber: index + 2 } // Para tracking de errores
         headers.forEach((header, index) => {
           row[header] = values[index] || ''
         })
         return row
-      }).filter(row => Object.values(row).some(val => val !== '')) // Filtrar filas vacías
+      }).filter(row => Object.values(row).some(val => val !== '' && val !== row._rowNumber))
 
-      setPreviewData(data.slice(0, 5)) // Show first 5 rows for preview
-
-      if (type === 'patients') {
-        await importPatients(data)
-      } else if (type === 'payments') {
-        await importPayments(data)
-      } else if (type === 'appointments') {
-        await importAppointments(data)
-      } else if (type === 'services') {
-        await importServices(data)
+      if (data.length === 0) {
+        throw new Error('No se encontraron datos válidos en el archivo')
       }
+
+      setRawData(data)
+      setPreviewData(data.slice(0, 10)) // Show first 10 rows for preview
+      setImportStep('preview')
+      
+      // Agregar log
+      setRealTimeLog([
+        `✅ Archivo cargado exitosamente`,
+        `📊 Se encontraron ${data.length} registros para importar`,
+        `👀 Mostrando vista previa de los primeros ${Math.min(data.length, 10)} registros`
+      ])
+
     } catch (error) {
       console.error('Error processing file:', error)
-      setImportResult({
-        success: 0,
-        errors: ['Error al procesar el archivo. Verifica el formato CSV.'],
-        total: 0
-      })
+      setRealTimeLog([
+        `❌ Error al procesar el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      ])
     } finally {
       setLoading(false)
     }
   }
 
-  const importPatients = async (data: any[]) => {
+  const startImport = async () => {
+    setImportStep('importing')
+    setLoading(true)
+    setImportResult(null)
+    setRealTimeLog([])
+
+    try {
+      if (activeTab === 'patients') {
+        await importPatientsWithProgress(rawData)
+      } else if (activeTab === 'payments') {
+        await importPaymentsWithProgress(rawData)
+      } else if (activeTab === 'appointments') {
+        await importAppointmentsWithProgress(rawData)
+      } else if (activeTab === 'services') {
+        await importServicesWithProgress(rawData)
+      }
+    } catch (error) {
+      console.error('Import error:', error)
+      setRealTimeLog(prev => [...prev, `❌ Error general en la importación: ${error}`])
+    } finally {
+      setLoading(false)
+      setImportStep('completed')
+    }
+  }
+
+  const addLog = (message: string) => {
+    setRealTimeLog(prev => [...prev, `${new Date().toLocaleTimeString()} - ${message}`])
+  }
+
+  const updateProgress = (current: number, total: number, currentItem: string, status: 'processing' | 'success' | 'error', message: string) => {
+    setImportProgress({ current, total, currentItem, status, message })
+    addLog(message)
+  }
+
+  const importPatientsWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
+    addLog(`🚀 Iniciando importación de ${data.length} pacientes...`)
 
     for (const [index, row] of data.entries()) {
+      const rowNumber = row._rowNumber || index + 2
+      const patientName = row['nombre_completo'] || row['nombre'] || `Registro ${rowNumber}`
+      
+      updateProgress(index + 1, data.length, patientName, 'processing', `Procesando: ${patientName}`)
+
       try {
-        const rowNumber = index + 2 // +2 porque empezamos en fila 2 (después del header)
-        
         // Validar campos requeridos
         if (!row['nombre_completo'] && !row['nombre']) {
-          results.errors.push(`Fila ${rowNumber}: El campo 'nombre_completo' es requerido`)
+          const error = `❌ Fila ${rowNumber}: El campo 'nombre_completo' es requerido`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, patientName, 'error', error)
           continue
         }
 
@@ -98,7 +165,9 @@ export default function Import() {
           if (sexoUpper === 'M' || sexoUpper === 'F') {
             sexo = sexoUpper
           } else {
-            results.errors.push(`Fila ${rowNumber}: El campo 'sexo' debe ser 'M' o 'F'`)
+            const error = `❌ Fila ${rowNumber}: El campo 'sexo' debe ser 'M' o 'F'`
+            results.errors.push(error)
+            updateProgress(index + 1, data.length, patientName, 'error', error)
             continue
           }
         }
@@ -111,7 +180,9 @@ export default function Import() {
           if (!isNaN(fecha.getTime())) {
             cumpleanos = fecha.toISOString().split('T')[0]
           } else {
-            results.errors.push(`Fila ${rowNumber}: Fecha de cumpleaños inválida: ${fechaStr}`)
+            const error = `❌ Fila ${rowNumber}: Fecha de cumpleaños inválida: ${fechaStr}`
+            results.errors.push(error)
+            updateProgress(index + 1, data.length, patientName, 'error', error)
             continue
           }
         }
@@ -133,62 +204,82 @@ export default function Import() {
           .insert([patientData])
 
         if (error) {
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          const errorMsg = `❌ Fila ${rowNumber}: ${error.message}`
+          results.errors.push(errorMsg)
+          updateProgress(index + 1, data.length, patientName, 'error', errorMsg)
         } else {
           results.success++
+          updateProgress(index + 1, data.length, patientName, 'success', `✅ Paciente creado: ${patientName}`)
         }
+
+        // Pequeña pausa para visualizar el progreso
+        await new Promise(resolve => setTimeout(resolve, 100))
+
       } catch (error) {
-        results.errors.push(`Fila ${index + 2}: Error inesperado - ${error}`)
+        const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`
+        results.errors.push(errorMsg)
+        updateProgress(index + 1, data.length, patientName, 'error', errorMsg)
       }
     }
 
+    addLog(`🏁 Importación completada: ${results.success} exitosos, ${results.errors.length} errores`)
     setImportResult(results)
   }
 
-  const importPayments = async (data: any[]) => {
+  const importPaymentsWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
+    addLog(`🚀 Iniciando importación de ${data.length} pagos...`)
 
     for (const [index, row] of data.entries()) {
+      const rowNumber = row._rowNumber || index + 2
+      const clienteName = row['cliente'] || row['paciente'] || row['nombre_completo'] || `Registro ${rowNumber}`
+      
+      updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando pago de: ${clienteName}`)
+
       try {
-        const rowNumber = index + 2
-        
         // Buscar paciente por nombre o teléfono
         let patient = null
         if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
           const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
           const { data: patients } = await supabase
             .from('patients')
-            .select('id')
+            .select('id, nombre_completo')
             .ilike('nombre_completo', `%${nombreBusqueda}%`)
             .limit(1)
           patient = patients?.[0]
         }
 
-        if (!patient && (row['telefono'])) {
+        if (!patient && row['telefono']) {
           const { data: patients } = await supabase
             .from('patients')
-            .select('id')
+            .select('id, nombre_completo')
             .eq('telefono', row['telefono'])
             .limit(1)
           patient = patients?.[0]
         }
 
         if (!patient) {
-          results.errors.push(`Fila ${rowNumber}: No se encontró el paciente`)
+          const error = `❌ Fila ${rowNumber}: No se encontró el paciente: ${clienteName}`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
         // Validar monto
         const monto = parseFloat(row['monto'] || row['cantidad'] || '0')
         if (monto <= 0) {
-          results.errors.push(`Fila ${rowNumber}: El monto debe ser mayor a 0`)
+          const error = `❌ Fila ${rowNumber}: El monto debe ser mayor a 0`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
         // Validar método de pago
         const metodoPago = row['metodo_pago'] || row['metodo'] || 'efectivo'
         if (!['efectivo', 'transferencia', 'bbva', 'clip'].includes(metodoPago)) {
-          results.errors.push(`Fila ${rowNumber}: Método de pago inválido: ${metodoPago}`)
+          const error = `❌ Fila ${rowNumber}: Método de pago inválido: ${metodoPago}`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
@@ -207,7 +298,7 @@ export default function Import() {
           monto,
           metodo_pago: metodoPago,
           fecha_pago: fechaPago,
-          cajera_id: userProfile?.id || null,
+          cajera_id: userProfile?.id || '550e8400-e29b-41d4-a716-446655440002',
           banco: row['banco'] || null,
           referencia: row['referencia'] || null,
           observaciones: row['observaciones'] || null,
@@ -219,32 +310,45 @@ export default function Import() {
           .insert([paymentData])
 
         if (error) {
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          const errorMsg = `❌ Fila ${rowNumber}: ${error.message}`
+          results.errors.push(errorMsg)
+          updateProgress(index + 1, data.length, clienteName, 'error', errorMsg)
         } else {
           results.success++
+          updateProgress(index + 1, data.length, clienteName, 'success', `✅ Pago registrado: $${monto} - ${patient.nombre_completo}`)
         }
+
+        await new Promise(resolve => setTimeout(resolve, 100))
+
       } catch (error) {
-        results.errors.push(`Fila ${index + 2}: Error inesperado - ${error}`)
+        const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`
+        results.errors.push(errorMsg)
+        updateProgress(index + 1, data.length, clienteName, 'error', errorMsg)
       }
     }
 
+    addLog(`🏁 Importación completada: ${results.success} exitosos, ${results.errors.length} errores`)
     setImportResult(results)
   }
 
-  const importAppointments = async (data: any[]) => {
+  const importAppointmentsWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
+    addLog(`🚀 Iniciando importación de ${data.length} citas...`)
 
     for (const [index, row] of data.entries()) {
+      const rowNumber = row._rowNumber || index + 2
+      const clienteName = row['cliente'] || row['paciente'] || row['nombre_completo'] || `Registro ${rowNumber}`
+      
+      updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando cita de: ${clienteName}`)
+
       try {
-        const rowNumber = index + 2
-        
         // Buscar paciente
         let patient = null
         if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
           const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
           const { data: patients } = await supabase
             .from('patients')
-            .select('id')
+            .select('id, nombre_completo')
             .ilike('nombre_completo', `%${nombreBusqueda}%`)
             .limit(1)
           patient = patients?.[0]
@@ -253,14 +357,16 @@ export default function Import() {
         if (!patient && row['telefono']) {
           const { data: patients } = await supabase
             .from('patients')
-            .select('id')
+            .select('id, nombre_completo')
             .eq('telefono', row['telefono'])
             .limit(1)
           patient = patients?.[0]
         }
 
         if (!patient) {
-          results.errors.push(`Fila ${rowNumber}: No se encontró el paciente`)
+          const error = `❌ Fila ${rowNumber}: No se encontró el paciente: ${clienteName}`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
@@ -270,7 +376,7 @@ export default function Import() {
           const serviceBusqueda = row['servicio'] || row['tratamiento']
           const { data: services } = await supabase
             .from('services')
-            .select('id, precio_base')
+            .select('id, nombre, precio_base')
             .ilike('nombre', `%${serviceBusqueda}%`)
             .eq('is_active', true)
             .limit(1)
@@ -278,7 +384,9 @@ export default function Import() {
         }
 
         if (!service) {
-          results.errors.push(`Fila ${rowNumber}: No se encontró el servicio`)
+          const error = `❌ Fila ${rowNumber}: No se encontró el servicio: ${row['servicio'] || row['tratamiento']}`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
@@ -290,7 +398,9 @@ export default function Import() {
           if (!isNaN(fecha.getTime())) {
             fechaHora = fecha.toISOString()
           } else {
-            results.errors.push(`Fila ${rowNumber}: Fecha inválida: ${fechaStr}`)
+            const error = `❌ Fila ${rowNumber}: Fecha inválida: ${fechaStr}`
+            results.errors.push(error)
+            updateProgress(index + 1, data.length, clienteName, 'error', error)
             continue
           }
         }
@@ -311,39 +421,58 @@ export default function Import() {
           .insert([appointmentData])
 
         if (error) {
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          const errorMsg = `❌ Fila ${rowNumber}: ${error.message}`
+          results.errors.push(errorMsg)
+          updateProgress(index + 1, data.length, clienteName, 'error', errorMsg)
         } else {
           results.success++
+          updateProgress(index + 1, data.length, clienteName, 'success', `✅ Cita creada: ${patient.nombre_completo} - ${service.nombre}`)
         }
+
+        await new Promise(resolve => setTimeout(resolve, 100))
+
       } catch (error) {
-        results.errors.push(`Fila ${index + 2}: Error inesperado - ${error}`)
+        const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`
+        results.errors.push(errorMsg)
+        updateProgress(index + 1, data.length, clienteName, 'error', errorMsg)
       }
     }
 
+    addLog(`🏁 Importación completada: ${results.success} exitosos, ${results.errors.length} errores`)
     setImportResult(results)
   }
 
-  const importServices = async (data: any[]) => {
+  const importServicesWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
+    addLog(`🚀 Iniciando importación de ${data.length} servicios...`)
 
     for (const [index, row] of data.entries()) {
+      const rowNumber = row._rowNumber || index + 2
+      const serviceName = row['nombre'] || `Servicio ${rowNumber}`
+      
+      updateProgress(index + 1, data.length, serviceName, 'processing', `Procesando servicio: ${serviceName}`)
+
       try {
-        const rowNumber = index + 2
-        
         // Validar campos requeridos
         if (!row['nombre']) {
-          results.errors.push(`Fila ${rowNumber}: El campo 'nombre' es requerido`)
+          const error = `❌ Fila ${rowNumber}: El campo 'nombre' es requerido`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, serviceName, 'error', error)
           continue
         }
 
         if (!row['zona']) {
-          results.errors.push(`Fila ${rowNumber}: El campo 'zona' es requerido`)
+          const error = `❌ Fila ${rowNumber}: El campo 'zona' es requerido`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, serviceName, 'error', error)
           continue
         }
 
         const precioBase = parseFloat(row['precio_base'] || row['precio'] || '0')
         if (precioBase <= 0) {
-          results.errors.push(`Fila ${rowNumber}: El precio base debe ser mayor a 0`)
+          const error = `❌ Fila ${rowNumber}: El precio base debe ser mayor a 0`
+          results.errors.push(error)
+          updateProgress(index + 1, data.length, serviceName, 'error', error)
           continue
         }
 
@@ -362,16 +491,34 @@ export default function Import() {
           .insert([serviceData])
 
         if (error) {
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          const errorMsg = `❌ Fila ${rowNumber}: ${error.message}`
+          results.errors.push(errorMsg)
+          updateProgress(index + 1, data.length, serviceName, 'error', errorMsg)
         } else {
           results.success++
+          updateProgress(index + 1, data.length, serviceName, 'success', `✅ Servicio creado: ${serviceName} - $${precioBase}`)
         }
+
+        await new Promise(resolve => setTimeout(resolve, 100))
+
       } catch (error) {
-        results.errors.push(`Fila ${index + 2}: Error inesperado - ${error}`)
+        const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`
+        results.errors.push(errorMsg)
+        updateProgress(index + 1, data.length, serviceName, 'error', errorMsg)
       }
     }
 
+    addLog(`🏁 Importación completada: ${results.success} exitosos, ${results.errors.length} errores`)
     setImportResult(results)
+  }
+
+  const resetImport = () => {
+    setImportStep('upload')
+    setPreviewData([])
+    setRawData([])
+    setImportResult(null)
+    setImportProgress(null)
+    setRealTimeLog([])
   }
 
   const downloadTemplate = (type: string) => {
@@ -454,7 +601,7 @@ export default function Import() {
         .insert([{
           patient_id: patientData.id,
           service_id: serviceData.id,
-          fecha_hora: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Mañana
+          fecha_hora: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           numero_sesion: 1,
           status: 'agendada',
           precio_sesion: 999.99,
@@ -495,6 +642,49 @@ export default function Import() {
     { id: 'services', name: 'Servicios', icon: Scissors }
   ]
 
+  const getStepIndicator = () => {
+    const steps = [
+      { id: 'upload', name: 'Cargar', icon: Upload },
+      { id: 'preview', name: 'Vista Previa', icon: Eye },
+      { id: 'importing', name: 'Importando', icon: Play },
+      { id: 'completed', name: 'Completado', icon: CheckCircle }
+    ]
+
+    return (
+      <div className="flex items-center justify-center mb-8">
+        {steps.map((step, index) => {
+          const isActive = importStep === step.id
+          const isCompleted = steps.findIndex(s => s.id === importStep) > index
+          const Icon = step.icon
+          
+          return (
+            <div key={step.id} className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                isActive ? 'border-pink-500 bg-pink-500 text-white' :
+                isCompleted ? 'border-green-500 bg-green-500 text-white' :
+                'border-gray-300 text-gray-400'
+              }`}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <span className={`ml-2 text-sm font-medium ${
+                isActive ? 'text-pink-600' :
+                isCompleted ? 'text-green-600' :
+                'text-gray-400'
+              }`}>
+                {step.name}
+              </span>
+              {index < steps.length - 1 && (
+                <ArrowRight className={`w-4 h-4 mx-4 ${
+                  isCompleted ? 'text-green-500' : 'text-gray-300'
+                }`} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="px-4 sm:px-6 lg:px-8">
       {/* Header */}
@@ -507,6 +697,9 @@ export default function Import() {
           Importa datos desde archivos CSV para migrar información existente
         </p>
       </div>
+
+      {/* Step Indicator */}
+      {getStepIndicator()}
 
       {/* Test Data Button */}
       <div className="mb-6">
@@ -528,12 +721,16 @@ export default function Import() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id)
+                  resetImport()
+                }}
+                disabled={importStep === 'importing'}
                 className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-pink-500 text-pink-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Icon className="w-5 h-5 mr-2" />
                 {tab.name}
@@ -543,151 +740,175 @@ export default function Import() {
         </nav>
       </div>
 
-      {/* Import Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Upload Area */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Importar {tabs.find(t => t.id === activeTab)?.name}
-          </h3>
-          
-          <div className="mb-4">
-            <button
-              onClick={() => downloadTemplate(activeTab)}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-all"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Descargar Plantilla
-            </button>
+      {/* Upload Step */}
+      {importStep === 'upload' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Upload Area */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Cargar Archivo - {tabs.find(t => t.id === activeTab)?.name}
+            </h3>
+            
+            <div className="mb-4">
+              <button
+                onClick={() => downloadTemplate(activeTab)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-all"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Descargar Plantilla
+              </button>
+            </div>
+
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-pink-400 transition-colors">
+              <Upload className="mx-auto h-12 w-12 text-gray-400" />
+              <div className="mt-4">
+                <label htmlFor={`file-upload-${activeTab}`} className="cursor-pointer">
+                  <span className="mt-2 block text-sm font-medium text-gray-900">
+                    Arrastra un archivo CSV aquí o haz clic para seleccionar
+                  </span>
+                  <input
+                    id={`file-upload-${activeTab}`}
+                    name={`file-upload-${activeTab}`}
+                    type="file"
+                    accept=".csv"
+                    className="sr-only"
+                    onChange={handleFileUpload}
+                    disabled={loading}
+                  />
+                </label>
+                <p className="mt-1 text-xs text-gray-500">
+                  Solo archivos CSV hasta 10MB
+                </p>
+              </div>
+            </div>
+
+            {loading && (
+              <div className="mt-4 flex items-center justify-center">
+                <Loader className="animate-spin h-6 w-6 text-pink-600" />
+                <span className="ml-2 text-sm text-gray-600">Procesando archivo...</span>
+              </div>
+            )}
           </div>
 
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-pink-400 transition-colors">
-            <Upload className="mx-auto h-12 w-12 text-gray-400" />
-            <div className="mt-4">
-              <label htmlFor={`file-upload-${activeTab}`} className="cursor-pointer">
-                <span className="mt-2 block text-sm font-medium text-gray-900">
-                  Arrastra un archivo CSV aquí o haz clic para seleccionar
-                </span>
-                <input
-                  id={`file-upload-${activeTab}`}
-                  name={`file-upload-${activeTab}`}
-                  type="file"
-                  accept=".csv"
-                  className="sr-only"
-                  onChange={(e) => handleFileUpload(e, activeTab)}
-                  disabled={loading}
-                />
-              </label>
-              <p className="mt-1 text-xs text-gray-500">
-                Solo archivos CSV hasta 10MB
-              </p>
+          {/* Instructions */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Instrucciones de Importación
+            </h3>
+            
+            {activeTab === 'patients' && (
+              <div className="space-y-3 text-sm text-gray-600">
+                <p><strong>Campos requeridos:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>nombre_completo</code> - Nombre completo del paciente</li>
+                </ul>
+                <p><strong>Campos opcionales:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>telefono</code> - Número de teléfono</li>
+                  <li><code>cumpleanos</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
+                  <li><code>sexo</code> - M o F</li>
+                  <li><code>localidad</code> - Ciudad o localidad</li>
+                  <li><code>zonas_tratamiento</code> - Separadas por punto y coma (;)</li>
+                  <li><code>precio_total</code> - Precio total del tratamiento</li>
+                  <li><code>metodo_pago_preferido</code> - efectivo, transferencia, bbva, clip</li>
+                  <li><code>observaciones</code> - Notas adicionales</li>
+                </ul>
+              </div>
+            )}
+
+            {activeTab === 'payments' && (
+              <div className="space-y-3 text-sm text-gray-600">
+                <p><strong>Campos requeridos:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
+                  <li><code>monto</code> - Cantidad pagada</li>
+                  <li><code>metodo_pago</code> - efectivo, transferencia, bbva, clip</li>
+                </ul>
+                <p><strong>Campos opcionales:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>telefono</code> - Para identificar al cliente</li>
+                  <li><code>fecha_pago</code> - Fecha del pago (YYYY-MM-DD HH:MM)</li>
+                  <li><code>banco</code> - Nombre del banco</li>
+                  <li><code>referencia</code> - Número de referencia</li>
+                  <li><code>observaciones</code> - Notas adicionales</li>
+                  <li><code>tipo_pago</code> - pago_sesion, abono, transferencia</li>
+                </ul>
+              </div>
+            )}
+
+            {activeTab === 'appointments' && (
+              <div className="space-y-3 text-sm text-gray-600">
+                <p><strong>Campos requeridos:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
+                  <li><code>servicio</code> - Nombre del servicio (debe existir)</li>
+                  <li><code>fecha_hora</code> - Fecha y hora (YYYY-MM-DD HH:MM)</li>
+                </ul>
+                <p><strong>Campos opcionales:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>telefono</code> - Para identificar al cliente</li>
+                  <li><code>numero_sesion</code> - Número de sesión</li>
+                  <li><code>status</code> - agendada, confirmada, completada, cancelada</li>
+                  <li><code>precio_sesion</code> - Precio de la sesión</li>
+                  <li><code>observaciones</code> - Notas adicionales</li>
+                </ul>
+              </div>
+            )}
+
+            {activeTab === 'services' && (
+              <div className="space-y-3 text-sm text-gray-600">
+                <p><strong>Campos requeridos:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>nombre</code> - Nombre del servicio</li>
+                  <li><code>zona</code> - Zona corporal del tratamiento</li>
+                  <li><code>precio_base</code> - Precio base del servicio</li>
+                </ul>
+                <p><strong>Campos opcionales:</strong></p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code>descripcion</code> - Descripción del servicio</li>
+                  <li><code>duracion_minutos</code> - Duración en minutos (default: 60)</li>
+                  <li><code>sesiones_recomendadas</code> - Sesiones recomendadas (default: 10)</li>
+                  <li><code>tecnologia</code> - Tecnología utilizada (default: Sopranoice)</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Preview Step */}
+      {importStep === 'preview' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-medium text-gray-900">
+              Vista Previa - {rawData.length} registros listos para importar
+            </h3>
+            <div className="flex space-x-3">
+              <button
+                onClick={resetImport}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancelar
+              </button>
+              <button
+                onClick={startImport}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Iniciar Importación
+              </button>
             </div>
           </div>
 
-          {loading && (
-            <div className="mt-4 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-pink-600"></div>
-              <span className="ml-2 text-sm text-gray-600">Procesando archivo...</span>
-            </div>
-          )}
-        </div>
-
-        {/* Instructions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Instrucciones de Importación
-          </h3>
-          
-          {activeTab === 'patients' && (
-            <div className="space-y-3 text-sm text-gray-600">
-              <p><strong>Campos requeridos:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>nombre_completo</code> - Nombre completo del paciente</li>
-              </ul>
-              <p><strong>Campos opcionales:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>telefono</code> - Número de teléfono</li>
-                <li><code>cumpleanos</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
-                <li><code>sexo</code> - M o F</li>
-                <li><code>localidad</code> - Ciudad o localidad</li>
-                <li><code>zonas_tratamiento</code> - Separadas por punto y coma (;)</li>
-                <li><code>precio_total</code> - Precio total del tratamiento</li>
-                <li><code>metodo_pago_preferido</code> - efectivo, transferencia, bbva, clip</li>
-                <li><code>observaciones</code> - Notas adicionales</li>
-              </ul>
-            </div>
-          )}
-
-          {activeTab === 'payments' && (
-            <div className="space-y-3 text-sm text-gray-600">
-              <p><strong>Campos requeridos:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
-                <li><code>monto</code> - Cantidad pagada</li>
-                <li><code>metodo_pago</code> - efectivo, transferencia, bbva, clip</li>
-              </ul>
-              <p><strong>Campos opcionales:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>telefono</code> - Para identificar al cliente</li>
-                <li><code>fecha_pago</code> - Fecha del pago (YYYY-MM-DD HH:MM)</li>
-                <li><code>banco</code> - Nombre del banco</li>
-                <li><code>referencia</code> - Número de referencia</li>
-                <li><code>observaciones</code> - Notas adicionales</li>
-                <li><code>tipo_pago</code> - pago_sesion, abono, transferencia</li>
-              </ul>
-            </div>
-          )}
-
-          {activeTab === 'appointments' && (
-            <div className="space-y-3 text-sm text-gray-600">
-              <p><strong>Campos requeridos:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
-                <li><code>servicio</code> - Nombre del servicio (debe existir)</li>
-                <li><code>fecha_hora</code> - Fecha y hora (YYYY-MM-DD HH:MM)</li>
-              </ul>
-              <p><strong>Campos opcionales:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>telefono</code> - Para identificar al cliente</li>
-                <li><code>numero_sesion</code> - Número de sesión</li>
-                <li><code>status</code> - agendada, confirmada, completada, cancelada</li>
-                <li><code>precio_sesion</code> - Precio de la sesión</li>
-                <li><code>observaciones</code> - Notas adicionales</li>
-              </ul>
-            </div>
-          )}
-
-          {activeTab === 'services' && (
-            <div className="space-y-3 text-sm text-gray-600">
-              <p><strong>Campos requeridos:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>nombre</code> - Nombre del servicio</li>
-                <li><code>zona</code> - Zona corporal del tratamiento</li>
-                <li><code>precio_base</code> - Precio base del servicio</li>
-              </ul>
-              <p><strong>Campos opcionales:</strong></p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code>descripcion</code> - Descripción del servicio</li>
-                <li><code>duracion_minutos</code> - Duración en minutos (default: 60)</li>
-                <li><code>sesiones_recomendadas</code> - Sesiones recomendadas (default: 10)</li>
-                <li><code>tecnologia</code> - Tecnología utilizada (default: Sopranoice)</li>
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Preview Data */}
-      {previewData.length > 0 && (
-        <div className="mt-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Vista Previa (Primeras 5 filas)
-          </h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {Object.keys(previewData[0] || {}).map((header) => (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    #
+                  </th>
+                  {Object.keys(previewData[0] || {}).filter(key => key !== '_rowNumber').map((header) => (
                     <th key={header} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       {header}
                     </th>
@@ -696,10 +917,13 @@ export default function Import() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {previewData.map((row, index) => (
-                  <tr key={index}>
-                    {Object.values(row).map((value: any, cellIndex) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {index + 1}
+                    </td>
+                    {Object.entries(row).filter(([key]) => key !== '_rowNumber').map(([key, value], cellIndex) => (
                       <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {value}
+                        {Array.isArray(value) ? value.join(', ') : String(value)}
                       </td>
                     ))}
                   </tr>
@@ -707,60 +931,168 @@ export default function Import() {
               </tbody>
             </table>
           </div>
+
+          {rawData.length > 10 && (
+            <p className="mt-4 text-sm text-gray-500 text-center">
+              Mostrando 10 de {rawData.length} registros. Todos los registros serán importados.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Import Results */}
-      {importResult && (
-        <div className="mt-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Resultados de la Importación
-          </h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-green-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-green-800">Exitosos</p>
-                  <p className="text-2xl font-bold text-green-900">{importResult.success}</p>
+      {/* Importing Step */}
+      {importStep === 'importing' && (
+        <div className="space-y-6">
+          {/* Progress Bar */}
+          {importProgress && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Progreso de Importación</h3>
+                <span className="text-sm text-gray-500">
+                  {importProgress.current} de {importProgress.total}
+                </span>
+              </div>
+              
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+                <div 
+                  className="bg-gradient-to-r from-pink-500 to-purple-600 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                ></div>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                {importProgress.status === 'processing' && (
+                  <Loader className="animate-spin w-4 h-4 text-blue-600" />
+                )}
+                {importProgress.status === 'success' && (
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                )}
+                {importProgress.status === 'error' && (
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                )}
+                <span className="text-sm font-medium">
+                  {importProgress.currentItem}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Real-time Log */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Log de Importación en Tiempo Real</h3>
+            <div className="bg-gray-900 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm">
+              {realTimeLog.map((log, index) => (
+                <div 
+                  key={index} 
+                  className={`mb-1 ${
+                    log.includes('✅') ? 'text-green-400' :
+                    log.includes('❌') ? 'text-red-400' :
+                    log.includes('🚀') ? 'text-blue-400' :
+                    log.includes('🏁') ? 'text-yellow-400' :
+                    'text-gray-300'
+                  }`}
+                >
+                  {log}
+                </div>
+              ))}
+              {realTimeLog.length === 0 && (
+                <div className="text-gray-500 text-center">
+                  Esperando logs de importación...
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Completed Step */}
+      {importStep === 'completed' && importResult && (
+        <div className="space-y-6">
+          {/* Results Summary */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Resultados de la Importación
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-green-50 rounded-lg p-4">
+                <div className="flex items-center">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-green-800">Exitosos</p>
+                    <p className="text-2xl font-bold text-green-900">{importResult.success}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-red-50 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-red-800">Errores</p>
+                    <p className="text-2xl font-bold text-red-900">{importResult.errors.length}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="flex items-center">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-blue-800">Total</p>
+                    <p className="text-2xl font-bold text-blue-900">{importResult.total}</p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-red-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-red-800">Errores</p>
-                  <p className="text-2xl font-bold text-red-900">{importResult.errors.length}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-blue-800">Total</p>
-                  <p className="text-2xl font-bold text-blue-900">{importResult.total}</p>
-                </div>
-              </div>
+            <div className="flex justify-center">
+              <button
+                onClick={resetImport}
+                className="inline-flex items-center px-6 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+              >
+                Nueva Importación
+              </button>
             </div>
           </div>
 
+          {/* Error Details */}
           {importResult.errors.length > 0 && (
-            <div>
-              <h4 className="text-md font-medium text-gray-900 mb-2">Errores Encontrados:</h4>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h4 className="text-md font-medium text-gray-900 mb-4">Errores Encontrados:</h4>
               <div className="bg-red-50 rounded-lg p-4 max-h-64 overflow-y-auto">
-                <ul className="text-sm text-red-700 space-y-1">
+                <ul className="text-sm text-red-700 space-y-2">
                   {importResult.errors.map((error, index) => (
-                    <li key={index}>• {error}</li>
+                    <li key={index} className="flex items-start">
+                      <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 mr-2 flex-shrink-0" />
+                      {error}
+                    </li>
                   ))}
                 </ul>
               </div>
             </div>
           )}
+
+          {/* Final Log */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Log Final de Importación</h3>
+            <div className="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+              {realTimeLog.map((log, index) => (
+                <div 
+                  key={index} 
+                  className={`mb-1 ${
+                    log.includes('✅') ? 'text-green-400' :
+                    log.includes('❌') ? 'text-red-400' :
+                    log.includes('🚀') ? 'text-blue-400' :
+                    log.includes('🏁') ? 'text-yellow-400' :
+                    'text-gray-300'
+                  }`}
+                >
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
