@@ -75,8 +75,49 @@ export default function Services() {
     }
   }
 
+  const deleteService = async (serviceId: string, serviceName: string) => {
+    if (!confirm(`¿Estás seguro de que quieres desactivar el servicio "${serviceName}"?`)) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('services')
+        .update({ is_active: false })
+        .eq('id', serviceId)
+
+      if (error) throw error
+      
+      await fetchServices()
+      alert('Servicio desactivado exitosamente')
+    } catch (error) {
+      console.error('Error deleting service:', error)
+      alert('Error al desactivar el servicio')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validaciones
+    if (!formData.nombre.trim()) {
+      alert('El nombre del servicio es requerido')
+      return
+    }
+    
+    if (!formData.zona) {
+      alert('La zona corporal es requerida')
+      return
+    }
+    
+    if (!formData.precio_base || parseFloat(formData.precio_base) <= 0) {
+      alert('El precio base debe ser mayor a 0')
+      return
+    }
+    
     setLoading(true)
 
     try {
@@ -106,8 +147,10 @@ export default function Services() {
       await fetchServices()
       setShowModal(false)
       resetForm()
+      alert(isEditing ? 'Servicio actualizado exitosamente' : 'Servicio creado exitosamente')
     } catch (error) {
       console.error('Error saving service:', error)
+      alert('Error al guardar el servicio. Por favor intenta de nuevo.')
     } finally {
       setLoading(false)
     }
