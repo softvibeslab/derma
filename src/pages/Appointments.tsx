@@ -10,7 +10,8 @@ import {
   Filter,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -134,8 +135,49 @@ export default function Appointments() {
     )
   }
 
+  const deleteAppointment = async (appointmentId: string) => {
+    if (!confirm('¿Estás seguro de que quieres cancelar esta cita?')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelada' })
+        .eq('id', appointmentId)
+
+      if (error) throw error
+      
+      await fetchData()
+      alert('Cita cancelada exitosamente')
+    } catch (error) {
+      console.error('Error canceling appointment:', error)
+      alert('Error al cancelar la cita')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validaciones
+    if (!formData.patient_id) {
+      alert('Debe seleccionar un paciente')
+      return
+    }
+    
+    if (!formData.service_id) {
+      alert('Debe seleccionar un servicio')
+      return
+    }
+    
+    if (!formData.fecha_hora) {
+      alert('Debe seleccionar fecha y hora')
+      return
+    }
+    
     setLoading(true)
 
     try {
@@ -163,8 +205,10 @@ export default function Appointments() {
       await fetchData()
       setShowModal(false)
       resetForm()
+      alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
     } catch (error) {
       console.error('Error saving appointment:', error)
+      alert('Error al guardar la cita. Por favor intenta de nuevo.')
     } finally {
       setLoading(false)
     }
