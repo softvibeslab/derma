@@ -103,13 +103,21 @@ export default function Patients() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    
+    // Validaciones básicas
+    if (!formData.nombre_completo.trim()) {
+      alert('El nombre completo es requerido')
+      setLoading(false)
+      return
+    }
 
     try {
       const patientData = {
         ...formData,
         precio_total: formData.precio_total ? parseFloat(formData.precio_total) : null,
         cumpleanos: formData.cumpleanos || null,
-        fecha_consentimiento: formData.consentimiento_firmado ? new Date().toISOString().split('T')[0] : null
+        fecha_consentimiento: formData.consentimiento_firmado ? new Date().toISOString().split('T')[0] : null,
+        numero_cliente: null // Se puede generar automáticamente si es necesario
       }
 
       if (isEditing && selectedPatient) {
@@ -130,8 +138,10 @@ export default function Patients() {
       await fetchPatients()
       setShowModal(false)
       resetForm()
+      alert(isEditing ? 'Paciente actualizado exitosamente' : 'Paciente creado exitosamente')
     } catch (error) {
       console.error('Error saving patient:', error)
+      alert('Error al guardar el paciente. Por favor intenta de nuevo.')
     } finally {
       setLoading(false)
     }
@@ -183,6 +193,30 @@ export default function Patients() {
         ? prev.zonas_tratamiento.filter(z => z !== zone)
         : [...prev.zonas_tratamiento, zone]
     }))
+  }
+
+  const deletePatient = async (patientId: string, patientName: string) => {
+    if (!confirm(`¿Estás seguro de que quieres desactivar al paciente "${patientName}"?`)) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('patients')
+        .update({ is_active: false })
+        .eq('id', patientId)
+
+      if (error) throw error
+      
+      await fetchPatients()
+      alert('Paciente desactivado exitosamente')
+    } catch (error) {
+      console.error('Error deleting patient:', error)
+      alert('Error al desactivar el paciente')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (loading && patients.length === 0) {
