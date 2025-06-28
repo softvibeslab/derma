@@ -44,7 +44,8 @@ export function usePermissions() {
         services: ['read'],
         payments: ['read', 'create'],
         reports: ['read'],
-        import: ['read', 'create']
+        import: ['read', 'create'],
+        users: ['read']
       },
       cosmetologa: {
         dashboard: ['read'],
@@ -52,7 +53,8 @@ export function usePermissions() {
         appointments: ['read', 'update'],
         services: ['read'],
         payments: ['read'],
-        reports: ['read']
+        reports: ['read'],
+        users: ['read']
       }
     }
 

@@ -432,8 +432,16 @@ export default function Appointments() {
                           <button
                             onClick={() => openModal(appointment)}
                             className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
+                            title="Editar cita"
                           >
                             <Calendar className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => deleteAppointment(appointment.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
+                            title="Cancelar cita"
+                          >
+                            <X className="w-5 h-5" />
                           </button>
                         </div>
                       </div>

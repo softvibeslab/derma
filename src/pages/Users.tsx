@@ -95,6 +95,25 @@ export default function Users() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    
+    // Validaciones
+    if (!formData.full_name.trim()) {
+      alert('El nombre completo es requerido')
+      setLoading(false)
+      return
+    }
+    
+    if (!formData.email.trim()) {
+      alert('El email es requerido')
+      setLoading(false)
+      return
+    }
+    
+    if (!isEditing && (!formData.password || formData.password.length < 6)) {
+      alert('La contraseña debe tener al menos 6 caracteres')
+      setLoading(false)
+      return
+    }
 
     try {
       if (isEditing && selectedUser) {
@@ -142,9 +161,14 @@ export default function Users() {
       await fetchUsers()
       setShowModal(false)
       resetForm()
+      alert(isEditing ? 'Usuario actualizado exitosamente' : 'Usuario creado exitosamente')
     } catch (error) {
       console.error('Error saving user:', error)
-      alert('Error al guardar el usuario. Verifica que el email no esté en uso.')
+      if (error instanceof Error && error.message.includes('duplicate')) {
+        alert('Error: El email ya está en uso por otro usuario.')
+      } else {
+        alert('Error al guardar el usuario. Por favor intenta de nuevo.')
+      }
     } finally {
       setLoading(false)
     }

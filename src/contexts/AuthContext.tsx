@@ -113,12 +113,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: authUser } = await supabase.auth.getUser()
         if (authUser.user) {
           // Determinar rol por defecto basado en email
-          let defaultRole = 'cajero'
+          let defaultRole = 'cosmetologa'
           const email = authUser.user.email || ''
           
           if (email.includes('admin')) {
             defaultRole = 'administrador'
-          } else if (email.includes('cosmetologa')) {
+          } else if (email.includes('cajero') || email.includes('cajera')) {
+            defaultRole = 'cajero'
+          } else if (email.includes('cosmetologa') || email.includes('cosmetologo')) {
             defaultRole = 'cosmetologa'
           }
           

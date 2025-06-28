@@ -82,6 +82,21 @@ export default function Roles() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    
+    // Validaciones
+    if (!formData.name.trim()) {
+      alert('El nombre del rol es requerido')
+      setLoading(false)
+      return
+    }
+    
+    // Verificar que tenga al menos un permiso
+    const hasPermissions = Object.keys(formData.permissions).length > 0
+    if (!hasPermissions) {
+      alert('Debe asignar al menos un permiso al rol')
+      setLoading(false)
+      return
+    }
 
     try {
       const roleData = {
@@ -108,8 +123,14 @@ export default function Roles() {
       await fetchRoles()
       setShowModal(false)
       resetForm()
+      alert(isEditing ? 'Rol actualizado exitosamente' : 'Rol creado exitosamente')
     } catch (error) {
       console.error('Error saving role:', error)
+      if (error instanceof Error && error.message.includes('duplicate')) {
+        alert('Error: Ya existe un rol con ese nombre.')
+      } else {
+        alert('Error al guardar el rol. Por favor intenta de nuevo.')
+      }
     } finally {
       setLoading(false)
     }

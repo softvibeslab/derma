@@ -257,6 +257,21 @@ export default function Payments() {
 
   const processPayment = async () => {
     if (cart.length === 0) return
+    
+    // Validaciones
+    const total = calculateTotal()
+    if (total <= 0) {
+      alert('El total debe ser mayor a 0')
+      return
+    }
+    
+    if (paymentMethod === 'efectivo' && amountPaid) {
+      const paid = parseFloat(amountPaid)
+      if (paid < total) {
+        alert('La cantidad recibida debe ser igual o mayor al total')
+        return
+      }
+    }
 
     try {
       setLoading(true)
@@ -336,6 +351,8 @@ export default function Payments() {
       await fetchPayments()
       await fetchStats()
       await fetchPendingAppointments()
+      
+      alert('Pago procesado exitosamente')
     } catch (error) {
       console.error('Error processing payment:', error)
       alert('Error al procesar el pago. Inténtalo de nuevo.')

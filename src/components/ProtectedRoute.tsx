@@ -47,14 +47,6 @@ export default function ProtectedRoute({
           <p className="text-gray-600 mb-4">
             No se pudo cargar tu perfil de usuario. Esto puede deberse a un problema de configuración.
           </p>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-yellow-700">
-              Usuario autenticado: <span className="font-mono">{user.email}</span>
-            </p>
-            <p className="text-sm text-yellow-700 mt-1">
-              ID de usuario: <span className="font-mono text-xs">{user.id}</span>
-            </p>
-          </div>
           <div className="space-y-2">
             <button
               onClick={() => window.location.reload()}
@@ -95,9 +87,6 @@ export default function ProtectedRoute({
               <div className="text-left">
                 <p className="text-sm font-medium text-yellow-800">
                   Información de acceso:
-                </p>
-                <p className="text-sm text-yellow-700">
-                  Usuario: <span className="font-mono">{userProfile.email}</span>
                 </p>
                 <p className="text-sm text-yellow-700">
                   Rol actual: <span className="font-mono capitalize">{userProfile.role}</span>
