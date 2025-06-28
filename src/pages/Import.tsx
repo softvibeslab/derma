@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { 
@@ -16,7 +16,15 @@ import {
   Loader,
   X,
   Eye,
-  ArrowRight
+  ArrowRight,
+  Edit3,
+  Save,
+  RotateCcw,
+  Trash2,
+  Plus,
+  FileSpreadsheet,
+  AlertTriangle,
+  Check
 } from 'lucide-react'
 
 interface ImportResult {
@@ -33,25 +41,187 @@ interface ImportProgress {
   message: string
 }
 
+interface ValidationError {
+  row: number
+  column: string
+  error: string
+  severity: 'error' | 'warning'
+}
+
+interface CellData {
+  value: string
+  originalValue: string
+  hasError: boolean
+  error?: string
+  isEdited: boolean
+}
+
 export default function Import() {
   const { userProfile } = useAuth()
   const [activeTab, setActiveTab] = useState('patients')
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [previewData, setPreviewData] = useState<any[]>([])
   const [rawData, setRawData] = useState<any[]>([])
-  const [importStep, setImportStep] = useState<'upload' | 'preview' | 'importing' | 'completed'>('upload')
+  const [tableData, setTableData] = useState<CellData[][]>([])
+  const [headers, setHeaders] = useState<string[]>([])
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
+  const [importStep, setImportStep] = useState<'upload' | 'edit' | 'importing' | 'completed'>('upload')
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [realTimeLog, setRealTimeLog] = useState<string[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const [editingCell, setEditingCell] = useState<{row: number, col: number} | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+  const tabs = [
+    { id: 'patients', name: 'Pacientes', icon: Users, color: 'bg-blue-500' },
+    { id: 'payments', name: 'Pagos', icon: CreditCard, color: 'bg-green-500' },
+    { id: 'appointments', name: 'Citas', icon: Calendar, color: 'bg-purple-500' },
+    { id: 'services', name: 'Servicios', icon: Scissors, color: 'bg-pink-500' }
+  ]
 
+  const getRequiredFields = () => {
+    const fields = {
+      patients: ['nombre_completo'],
+      payments: ['cliente', 'monto', 'metodo_pago'],
+      appointments: ['cliente', 'servicio', 'fecha_hora'],
+      services: ['nombre', 'zona', 'precio_base']
+    }
+    return fields[activeTab as keyof typeof fields] || []
+  }
+
+  const getExpectedHeaders = () => {
+    const expectedHeaders = {
+      patients: ['nombre_completo', 'telefono', 'cumpleanos', 'sexo', 'localidad', 'zonas_tratamiento', 'precio_total', 'metodo_pago_preferido', 'observaciones'],
+      payments: ['cliente', 'telefono', 'monto', 'metodo_pago', 'fecha_pago', 'banco', 'referencia', 'observaciones', 'tipo_pago'],
+      appointments: ['cliente', 'telefono', 'servicio', 'fecha_hora', 'numero_sesion', 'status', 'precio_sesion', 'observaciones'],
+      services: ['nombre', 'descripcion', 'zona', 'precio_base', 'duracion_minutos', 'sesiones_recomendadas', 'tecnologia']
+    }
+    return expectedHeaders[activeTab as keyof typeof expectedHeaders] || []
+  }
+
+  const validateCell = (value: string, header: string, rowIndex: number): { isValid: boolean; error?: string; severity?: 'error' | 'warning' } => {
+    const requiredFields = getRequiredFields()
+    
+    // Campo requerido vacío
+    if (requiredFields.includes(header) && (!value || value.trim() === '')) {
+      return { isValid: false, error: 'Campo requerido', severity: 'error' }
+    }
+
+    // Validaciones específicas por tipo de campo
+    switch (header) {
+      case 'email':
+        if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          return { isValid: false, error: 'Email inválido', severity: 'error' }
+        }
+        break
+      
+      case 'telefono':
+        if (value && !/^\d{10,15}$/.test(value.replace(/\D/g, ''))) {
+          return { isValid: false, error: 'Teléfono debe tener 10-15 dígitos', severity: 'warning' }
+        }
+        break
+      
+      case 'sexo':
+        if (value && !['M', 'F', 'm', 'f'].includes(value)) {
+          return { isValid: false, error: 'Debe ser M o F', severity: 'error' }
+        }
+        break
+      
+      case 'monto':
+      case 'precio_base':
+      case 'precio_total':
+      case 'precio_sesion':
+        if (value && (isNaN(parseFloat(value)) || parseFloat(value) <= 0)) {
+          return { isValid: false, error: 'Debe ser un número mayor a 0', severity: 'error' }
+        }
+        break
+      
+      case 'metodo_pago':
+        if (value && !['efectivo', 'transferencia', 'bbva', 'clip'].includes(value.toLowerCase())) {
+          return { isValid: false, error: 'Métodos válidos: efectivo, transferencia, bbva, clip', severity: 'warning' }
+        }
+        break
+      
+      case 'fecha_hora':
+      case 'fecha_pago':
+      case 'cumpleanos':
+        if (value && isNaN(Date.parse(value))) {
+          return { isValid: false, error: 'Formato de fecha inválido', severity: 'error' }
+        }
+        break
+      
+      case 'numero_sesion':
+      case 'duracion_minutos':
+      case 'sesiones_recomendadas':
+        if (value && (isNaN(parseInt(value)) || parseInt(value) < 1)) {
+          return { isValid: false, error: 'Debe ser un número entero mayor a 0', severity: 'error' }
+        }
+        break
+    }
+
+    return { isValid: true }
+  }
+
+  const validateAllData = () => {
+    const errors: ValidationError[] = []
+    
+    tableData.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const header = headers[colIndex]
+        const validation = validateCell(cell.value, header, rowIndex)
+        
+        if (!validation.isValid) {
+          errors.push({
+            row: rowIndex,
+            column: header,
+            error: validation.error || 'Error desconocido',
+            severity: validation.severity || 'error'
+          })
+        }
+      })
+    })
+    
+    setValidationErrors(errors)
+    return errors
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    const file = files[0]
+    
+    if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
+      processFile(file)
+    } else {
+      alert('Por favor, sube un archivo CSV válido')
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      processFile(file)
+    }
+  }
+
+  const processFile = async (file: File) => {
     setLoading(true)
     setImportResult(null)
-    setPreviewData([])
-    setRawData([])
+    setTableData([])
+    setHeaders([])
+    setValidationErrors([])
     setImportStep('upload')
     setRealTimeLog([])
 
@@ -63,29 +233,48 @@ export default function Import() {
         throw new Error('El archivo está vacío')
       }
 
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-      const data = lines.slice(1).map((line, index) => {
+      const fileHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+      const dataRows = lines.slice(1).map((line, index) => {
         const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
-        const row: any = { _rowNumber: index + 2 } // Para tracking de errores
-        headers.forEach((header, index) => {
-          row[header] = values[index] || ''
-        })
-        return row
-      }).filter(row => Object.values(row).some(val => val !== '' && val !== row._rowNumber))
+        return values
+      }).filter(row => row.some(val => val !== ''))
 
-      if (data.length === 0) {
+      if (dataRows.length === 0) {
         throw new Error('No se encontraron datos válidos en el archivo')
       }
 
-      setRawData(data)
-      setPreviewData(data.slice(0, 10)) // Show first 10 rows for preview
-      setImportStep('preview')
+      // Crear estructura de tabla editable
+      const processedData: CellData[][] = dataRows.map(row => 
+        fileHeaders.map((_, colIndex) => ({
+          value: row[colIndex] || '',
+          originalValue: row[colIndex] || '',
+          hasError: false,
+          isEdited: false
+        }))
+      )
+
+      setHeaders(fileHeaders)
+      setTableData(processedData)
+      setRawData(dataRows.map(row => {
+        const obj: any = { _rowNumber: dataRows.indexOf(row) + 2 }
+        fileHeaders.forEach((header, index) => {
+          obj[header] = row[index] || ''
+        })
+        return obj
+      }))
       
-      // Agregar log
+      setImportStep('edit')
+      
+      // Validar datos automáticamente
+      setTimeout(() => {
+        validateAllData()
+      }, 100)
+      
       setRealTimeLog([
         `✅ Archivo cargado exitosamente`,
-        `📊 Se encontraron ${data.length} registros para importar`,
-        `👀 Mostrando vista previa de los primeros ${Math.min(data.length, 10)} registros`
+        `📊 Se encontraron ${dataRows.length} registros`,
+        `📋 Columnas detectadas: ${fileHeaders.join(', ')}`,
+        `🔍 Validando datos...`
       ])
 
     } catch (error) {
@@ -98,21 +287,91 @@ export default function Import() {
     }
   }
 
+  const updateCell = (rowIndex: number, colIndex: number, newValue: string) => {
+    setTableData(prev => {
+      const newData = [...prev]
+      const validation = validateCell(newValue, headers[colIndex], rowIndex)
+      
+      newData[rowIndex][colIndex] = {
+        value: newValue,
+        originalValue: newData[rowIndex][colIndex].originalValue,
+        hasError: !validation.isValid,
+        error: validation.error,
+        isEdited: newValue !== newData[rowIndex][colIndex].originalValue
+      }
+      
+      return newData
+    })
+    
+    // Re-validar después de un pequeño delay
+    setTimeout(() => {
+      validateAllData()
+    }, 100)
+  }
+
+  const addRow = () => {
+    const newRow = headers.map(() => ({
+      value: '',
+      originalValue: '',
+      hasError: false,
+      isEdited: false
+    }))
+    
+    setTableData(prev => [...prev, newRow])
+  }
+
+  const deleteRow = (rowIndex: number) => {
+    setTableData(prev => prev.filter((_, index) => index !== rowIndex))
+    setTimeout(() => validateAllData(), 100)
+  }
+
+  const resetData = () => {
+    setTableData(prev => 
+      prev.map(row => 
+        row.map(cell => ({
+          ...cell,
+          value: cell.originalValue,
+          hasError: false,
+          error: undefined,
+          isEdited: false
+        }))
+      )
+    )
+    setTimeout(() => validateAllData(), 100)
+  }
+
   const startImport = async () => {
+    const errors = validateAllData()
+    const criticalErrors = errors.filter(err => err.severity === 'error')
+    
+    if (criticalErrors.length > 0) {
+      alert(`No se puede importar. Hay ${criticalErrors.length} errores críticos que deben corregirse.`)
+      return
+    }
+
     setImportStep('importing')
     setLoading(true)
     setImportResult(null)
     setRealTimeLog([])
 
     try {
+      // Convertir tableData de vuelta a formato de objeto
+      const processedData = tableData.map((row, rowIndex) => {
+        const obj: any = { _rowNumber: rowIndex + 2 }
+        headers.forEach((header, colIndex) => {
+          obj[header] = row[colIndex].value
+        })
+        return obj
+      })
+
       if (activeTab === 'patients') {
-        await importPatientsWithProgress(rawData)
+        await importPatientsWithProgress(processedData)
       } else if (activeTab === 'payments') {
-        await importPaymentsWithProgress(rawData)
+        await importPaymentsWithProgress(processedData)
       } else if (activeTab === 'appointments') {
-        await importAppointmentsWithProgress(rawData)
+        await importAppointmentsWithProgress(processedData)
       } else if (activeTab === 'services') {
-        await importServicesWithProgress(rawData)
+        await importServicesWithProgress(processedData)
       }
     } catch (error) {
       console.error('Import error:', error)
@@ -132,6 +391,7 @@ export default function Import() {
     addLog(message)
   }
 
+  // Las funciones de importación (mantener las existentes)
   const importPatientsWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
     addLog(`🚀 Iniciando importación de ${data.length} pacientes...`)
@@ -143,7 +403,6 @@ export default function Import() {
       updateProgress(index + 1, data.length, patientName, 'processing', `Procesando: ${patientName}`)
 
       try {
-        // Validar campos requeridos
         if (!row['nombre_completo'] && !row['nombre']) {
           const error = `❌ Fila ${rowNumber}: El campo 'nombre_completo' es requerido`
           results.errors.push(error)
@@ -151,39 +410,26 @@ export default function Import() {
           continue
         }
 
-        // Procesar zonas_tratamiento
         let zonasTratamiento: string[] = []
         const zonasStr = row['zonas_tratamiento'] || row['zonas'] || ''
         if (zonasStr) {
           zonasTratamiento = zonasStr.split(';').map((z: string) => z.trim()).filter((z: string) => z)
         }
 
-        // Validar sexo
         let sexo = null
         if (row['sexo']) {
           const sexoUpper = row['sexo'].toUpperCase()
           if (sexoUpper === 'M' || sexoUpper === 'F') {
             sexo = sexoUpper
-          } else {
-            const error = `❌ Fila ${rowNumber}: El campo 'sexo' debe ser 'M' o 'F'`
-            results.errors.push(error)
-            updateProgress(index + 1, data.length, patientName, 'error', error)
-            continue
           }
         }
 
-        // Procesar fecha de cumpleaños
         let cumpleanos = null
         if (row['cumpleanos'] || row['fecha_nacimiento']) {
           const fechaStr = row['cumpleanos'] || row['fecha_nacimiento']
           const fecha = new Date(fechaStr)
           if (!isNaN(fecha.getTime())) {
             cumpleanos = fecha.toISOString().split('T')[0]
-          } else {
-            const error = `❌ Fila ${rowNumber}: Fecha de cumpleaños inválida: ${fechaStr}`
-            results.errors.push(error)
-            updateProgress(index + 1, data.length, patientName, 'error', error)
-            continue
           }
         }
 
@@ -212,7 +458,6 @@ export default function Import() {
           updateProgress(index + 1, data.length, patientName, 'success', `✅ Paciente creado: ${patientName}`)
         }
 
-        // Pequeña pausa para visualizar el progreso
         await new Promise(resolve => setTimeout(resolve, 100))
 
       } catch (error) {
@@ -237,7 +482,6 @@ export default function Import() {
       updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando pago de: ${clienteName}`)
 
       try {
-        // Buscar paciente por nombre o teléfono
         let patient = null
         if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
           const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
@@ -265,7 +509,6 @@ export default function Import() {
           continue
         }
 
-        // Validar monto
         const monto = parseFloat(row['monto'] || row['cantidad'] || '0')
         if (monto <= 0) {
           const error = `❌ Fila ${rowNumber}: El monto debe ser mayor a 0`
@@ -274,7 +517,6 @@ export default function Import() {
           continue
         }
 
-        // Validar método de pago
         const metodoPago = row['metodo_pago'] || row['metodo'] || 'efectivo'
         if (!['efectivo', 'transferencia', 'bbva', 'clip'].includes(metodoPago)) {
           const error = `❌ Fila ${rowNumber}: Método de pago inválido: ${metodoPago}`
@@ -283,7 +525,6 @@ export default function Import() {
           continue
         }
 
-        // Procesar fecha de pago
         let fechaPago = new Date().toISOString()
         if (row['fecha_pago'] || row['fecha']) {
           const fechaStr = row['fecha_pago'] || row['fecha']
@@ -342,7 +583,6 @@ export default function Import() {
       updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando cita de: ${clienteName}`)
 
       try {
-        // Buscar paciente
         let patient = null
         if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
           const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
@@ -370,7 +610,6 @@ export default function Import() {
           continue
         }
 
-        // Buscar servicio
         let service = null
         if (row['servicio'] || row['tratamiento']) {
           const serviceBusqueda = row['servicio'] || row['tratamiento']
@@ -390,7 +629,6 @@ export default function Import() {
           continue
         }
 
-        // Procesar fecha y hora
         let fechaHora = new Date().toISOString()
         if (row['fecha_hora'] || row['fecha']) {
           const fechaStr = row['fecha_hora'] || row['fecha']
@@ -453,7 +691,6 @@ export default function Import() {
       updateProgress(index + 1, data.length, serviceName, 'processing', `Procesando servicio: ${serviceName}`)
 
       try {
-        // Validar campos requeridos
         if (!row['nombre']) {
           const error = `❌ Fila ${rowNumber}: El campo 'nombre' es requerido`
           results.errors.push(error)
@@ -514,11 +751,16 @@ export default function Import() {
 
   const resetImport = () => {
     setImportStep('upload')
-    setPreviewData([])
+    setTableData([])
+    setHeaders([])
     setRawData([])
     setImportResult(null)
     setImportProgress(null)
     setRealTimeLog([])
+    setValidationErrors([])
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const downloadTemplate = (type: string) => {
@@ -560,30 +802,28 @@ export default function Import() {
     try {
       setLoading(true)
       
-      // Insertar paciente de prueba
       const { data: patientData, error: patientError } = await supabase
         .from('patients')
         .insert([{
-          nombre_completo: 'Paciente Prueba CSV',
+          nombre_completo: 'Paciente Prueba Excel',
           telefono: '9999999999',
           sexo: 'F',
           localidad: 'Prueba',
           zonas_tratamiento: ['axilas', 'piernas'],
           precio_total: 1500.00,
           metodo_pago_preferido: 'efectivo',
-          observaciones: 'Paciente insertado desde prueba de importación CSV'
+          observaciones: 'Paciente insertado desde interfaz Excel'
         }])
         .select()
         .single()
 
       if (patientError) throw patientError
 
-      // Insertar servicio de prueba
       const { data: serviceData, error: serviceError } = await supabase
         .from('services')
         .insert([{
-          nombre: 'Servicio Prueba CSV',
-          descripcion: 'Servicio de prueba para importación CSV',
+          nombre: 'Servicio Prueba Excel',
+          descripcion: 'Servicio de prueba para interfaz Excel',
           zona: 'test_zone',
           precio_base: 999.99,
           duracion_minutos: 60,
@@ -595,7 +835,6 @@ export default function Import() {
 
       if (serviceError) throw serviceError
 
-      // Insertar cita de prueba
       const { error: appointmentError } = await supabase
         .from('appointments')
         .insert([{
@@ -605,13 +844,12 @@ export default function Import() {
           numero_sesion: 1,
           status: 'agendada',
           precio_sesion: 999.99,
-          observaciones_caja: 'Cita de prueba CSV',
+          observaciones_caja: 'Cita de prueba Excel',
           operadora_id: userProfile?.id
         }])
 
       if (appointmentError) throw appointmentError
 
-      // Insertar pago de prueba
       const { error: paymentError } = await supabase
         .from('payments')
         .insert([{
@@ -619,7 +857,7 @@ export default function Import() {
           monto: 999.99,
           metodo_pago: 'efectivo',
           cajera_id: userProfile?.id || '550e8400-e29b-41d4-a716-446655440002',
-          observaciones: 'Pago de prueba CSV',
+          observaciones: 'Pago de prueba Excel',
           tipo_pago: 'pago_sesion'
         }])
 
@@ -635,71 +873,18 @@ export default function Import() {
     }
   }
 
-  const tabs = [
-    { id: 'patients', name: 'Pacientes', icon: Users },
-    { id: 'payments', name: 'Pagos', icon: CreditCard },
-    { id: 'appointments', name: 'Citas', icon: Calendar },
-    { id: 'services', name: 'Servicios', icon: Scissors }
-  ]
-
-  const getStepIndicator = () => {
-    const steps = [
-      { id: 'upload', name: 'Cargar', icon: Upload },
-      { id: 'preview', name: 'Vista Previa', icon: Eye },
-      { id: 'importing', name: 'Importando', icon: Play },
-      { id: 'completed', name: 'Completado', icon: CheckCircle }
-    ]
-
-    return (
-      <div className="flex items-center justify-center mb-8">
-        {steps.map((step, index) => {
-          const isActive = importStep === step.id
-          const isCompleted = steps.findIndex(s => s.id === importStep) > index
-          const Icon = step.icon
-          
-          return (
-            <div key={step.id} className="flex items-center">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                isActive ? 'border-pink-500 bg-pink-500 text-white' :
-                isCompleted ? 'border-green-500 bg-green-500 text-white' :
-                'border-gray-300 text-gray-400'
-              }`}>
-                <Icon className="w-5 h-5" />
-              </div>
-              <span className={`ml-2 text-sm font-medium ${
-                isActive ? 'text-pink-600' :
-                isCompleted ? 'text-green-600' :
-                'text-gray-400'
-              }`}>
-                {step.name}
-              </span>
-              {index < steps.length - 1 && (
-                <ArrowRight className={`w-4 h-4 mx-4 ${
-                  isCompleted ? 'text-green-500' : 'text-gray-300'
-                }`} />
-              )}
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
   return (
     <div className="px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-          <Upload className="w-7 h-7 mr-3 text-pink-600" />
-          Importación de Datos
+          <FileSpreadsheet className="w-7 h-7 mr-3 text-pink-600" />
+          Importación Excel Avanzada
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          Importa datos desde archivos CSV para migrar información existente
+          Importa y edita datos con una interfaz tipo Excel con validación en tiempo real
         </p>
       </div>
-
-      {/* Step Indicator */}
-      {getStepIndicator()}
 
       {/* Test Data Button */}
       <div className="mb-6">
@@ -726,7 +911,7 @@ export default function Import() {
                   resetImport()
                 }}
                 disabled={importStep === 'importing'}
-                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
                     ? 'border-pink-500 text-pink-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -743,9 +928,9 @@ export default function Import() {
       {/* Upload Step */}
       {importStep === 'upload' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Upload Area */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+              <Upload className="w-5 h-5 mr-2" />
               Cargar Archivo - {tabs.find(t => t.id === activeTab)?.name}
             </h3>
             
@@ -759,20 +944,30 @@ export default function Import() {
               </button>
             </div>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-pink-400 transition-colors">
-              <Upload className="mx-auto h-12 w-12 text-gray-400" />
+            <div 
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                dragOver 
+                  ? 'border-pink-400 bg-pink-50' 
+                  : 'border-gray-300 hover:border-pink-400'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <FileSpreadsheet className={`mx-auto h-12 w-12 ${dragOver ? 'text-pink-500' : 'text-gray-400'}`} />
               <div className="mt-4">
-                <label htmlFor={`file-upload-${activeTab}`} className="cursor-pointer">
+                <label htmlFor="file-upload" className="cursor-pointer">
                   <span className="mt-2 block text-sm font-medium text-gray-900">
-                    Arrastra un archivo CSV aquí o haz clic para seleccionar
+                    {dragOver ? 'Suelta el archivo aquí' : 'Arrastra un archivo CSV aquí o haz clic para seleccionar'}
                   </span>
                   <input
-                    id={`file-upload-${activeTab}`}
-                    name={`file-upload-${activeTab}`}
+                    ref={fileInputRef}
+                    id="file-upload"
+                    name="file-upload"
                     type="file"
                     accept=".csv"
                     className="sr-only"
-                    onChange={handleFileUpload}
+                    onChange={handleFileSelect}
                     disabled={loading}
                   />
                 </label>
@@ -790,160 +985,244 @@ export default function Import() {
             )}
           </div>
 
-          {/* Instructions */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Instrucciones de Importación
+              Campos Esperados
             </h3>
             
-            {activeTab === 'patients' && (
-              <div className="space-y-3 text-sm text-gray-600">
-                <p><strong>Campos requeridos:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>nombre_completo</code> - Nombre completo del paciente</li>
-                </ul>
-                <p><strong>Campos opcionales:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>telefono</code> - Número de teléfono</li>
-                  <li><code>cumpleanos</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
-                  <li><code>sexo</code> - M o F</li>
-                  <li><code>localidad</code> - Ciudad o localidad</li>
-                  <li><code>zonas_tratamiento</code> - Separadas por punto y coma (;)</li>
-                  <li><code>precio_total</code> - Precio total del tratamiento</li>
-                  <li><code>metodo_pago_preferido</code> - efectivo, transferencia, bbva, clip</li>
-                  <li><code>observaciones</code> - Notas adicionales</li>
-                </ul>
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-sm font-medium text-red-600 mb-2">Campos Requeridos:</h4>
+                <div className="flex flex-wrap gap-2">
+                  {getRequiredFields().map(field => (
+                    <span key={field} className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
+                      {field}
+                    </span>
+                  ))}
+                </div>
               </div>
-            )}
 
-            {activeTab === 'payments' && (
-              <div className="space-y-3 text-sm text-gray-600">
-                <p><strong>Campos requeridos:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
-                  <li><code>monto</code> - Cantidad pagada</li>
-                  <li><code>metodo_pago</code> - efectivo, transferencia, bbva, clip</li>
-                </ul>
-                <p><strong>Campos opcionales:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>telefono</code> - Para identificar al cliente</li>
-                  <li><code>fecha_pago</code> - Fecha del pago (YYYY-MM-DD HH:MM)</li>
-                  <li><code>banco</code> - Nombre del banco</li>
-                  <li><code>referencia</code> - Número de referencia</li>
-                  <li><code>observaciones</code> - Notas adicionales</li>
-                  <li><code>tipo_pago</code> - pago_sesion, abono, transferencia</li>
-                </ul>
+              <div>
+                <h4 className="text-sm font-medium text-gray-600 mb-2">Campos Opcionales:</h4>
+                <div className="flex flex-wrap gap-2">
+                  {getExpectedHeaders()
+                    .filter(field => !getRequiredFields().includes(field))
+                    .map(field => (
+                      <span key={field} className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">
+                        {field}
+                      </span>
+                    ))}
+                </div>
               </div>
-            )}
-
-            {activeTab === 'appointments' && (
-              <div className="space-y-3 text-sm text-gray-600">
-                <p><strong>Campos requeridos:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>cliente</code> - Nombre del cliente (debe existir)</li>
-                  <li><code>servicio</code> - Nombre del servicio (debe existir)</li>
-                  <li><code>fecha_hora</code> - Fecha y hora (YYYY-MM-DD HH:MM)</li>
-                </ul>
-                <p><strong>Campos opcionales:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>telefono</code> - Para identificar al cliente</li>
-                  <li><code>numero_sesion</code> - Número de sesión</li>
-                  <li><code>status</code> - agendada, confirmada, completada, cancelada</li>
-                  <li><code>precio_sesion</code> - Precio de la sesión</li>
-                  <li><code>observaciones</code> - Notas adicionales</li>
-                </ul>
-              </div>
-            )}
-
-            {activeTab === 'services' && (
-              <div className="space-y-3 text-sm text-gray-600">
-                <p><strong>Campos requeridos:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>nombre</code> - Nombre del servicio</li>
-                  <li><code>zona</code> - Zona corporal del tratamiento</li>
-                  <li><code>precio_base</code> - Precio base del servicio</li>
-                </ul>
-                <p><strong>Campos opcionales:</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><code>descripcion</code> - Descripción del servicio</li>
-                  <li><code>duracion_minutos</code> - Duración en minutos (default: 60)</li>
-                  <li><code>sesiones_recomendadas</code> - Sesiones recomendadas (default: 10)</li>
-                  <li><code>tecnologia</code> - Tecnología utilizada (default: Sopranoice)</li>
-                </ul>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Preview Step */}
-      {importStep === 'preview' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-medium text-gray-900">
-              Vista Previa - {rawData.length} registros listos para importar
-            </h3>
-            <div className="flex space-x-3">
-              <button
-                onClick={resetImport}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <X className="w-4 h-4 mr-2" />
-                Cancelar
-              </button>
-              <button
-                onClick={startImport}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                Iniciar Importación
-              </button>
+      {/* Edit Step - Excel-like Interface */}
+      {importStep === 'edit' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Editor de Datos - {tableData.length} registros
+                </h3>
+                {validationErrors.length > 0 && (
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                    <span className="text-sm text-amber-600">
+                      {validationErrors.filter(e => e.severity === 'error').length} errores,{' '}
+                      {validationErrors.filter(e => e.severity === 'warning').length} advertencias
+                    </span>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={resetData}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Restaurar
+                </button>
+                <button
+                  onClick={addRow}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Agregar Fila
+                </button>
+                <button
+                  onClick={resetImport}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Cancelar
+                </button>
+                <button
+                  onClick={startImport}
+                  disabled={validationErrors.filter(e => e.severity === 'error').length > 0}
+                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Importar Datos
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    #
-                  </th>
-                  {Object.keys(previewData[0] || {}).filter(key => key !== '_rowNumber').map((header) => (
-                    <th key={header} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {previewData.map((row, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {index + 1}
-                    </td>
-                    {Object.entries(row).filter(([key]) => key !== '_rowNumber').map(([key, value], cellIndex) => (
-                      <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {Array.isArray(value) ? value.join(', ') : String(value)}
-                      </td>
+            {/* Excel-like Table */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="overflow-x-auto max-h-96">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="w-12 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        #
+                      </th>
+                      {headers.map((header, colIndex) => {
+                        const isRequired = getRequiredFields().includes(header)
+                        const hasErrors = validationErrors.some(err => err.column === header)
+                        return (
+                          <th 
+                            key={colIndex} 
+                            className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wider ${
+                              isRequired ? 'text-red-600 bg-red-50' : 'text-gray-500'
+                            } ${hasErrors ? 'border-2 border-red-300' : ''}`}
+                          >
+                            <div className="flex items-center space-x-1">
+                              <span>{header}</span>
+                              {isRequired && <span className="text-red-500">*</span>}
+                              {hasErrors && <AlertTriangle className="w-3 h-3 text-red-500" />}
+                            </div>
+                          </th>
+                        )
+                      })}
+                      <th className="w-16 px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {tableData.map((row, rowIndex) => (
+                      <tr key={rowIndex} className={`hover:bg-gray-50 ${
+                        validationErrors.some(err => err.row === rowIndex) ? 'bg-red-50' : ''
+                      }`}>
+                        <td className="px-3 py-2 text-sm font-medium text-gray-900 bg-gray-50">
+                          {rowIndex + 1}
+                        </td>
+                        {row.map((cell, colIndex) => {
+                          const cellError = validationErrors.find(
+                            err => err.row === rowIndex && err.column === headers[colIndex]
+                          )
+                          const isEditing = editingCell?.row === rowIndex && editingCell?.col === colIndex
+                          
+                          return (
+                            <td 
+                              key={colIndex} 
+                              className={`px-1 py-1 text-sm relative ${
+                                cell.hasError 
+                                  ? cellError?.severity === 'error' 
+                                    ? 'bg-red-100 border border-red-300' 
+                                    : 'bg-yellow-100 border border-yellow-300'
+                                  : cell.isEdited 
+                                    ? 'bg-blue-50 border border-blue-300' 
+                                    : 'border border-gray-200'
+                              }`}
+                              title={cell.error || (cell.isEdited ? 'Valor modificado' : '')}
+                            >
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={cell.value}
+                                  onChange={(e) => updateCell(rowIndex, colIndex, e.target.value)}
+                                  onBlur={() => setEditingCell(null)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Tab') {
+                                      setEditingCell(null)
+                                    }
+                                    if (e.key === 'Escape') {
+                                      updateCell(rowIndex, colIndex, cell.originalValue)
+                                      setEditingCell(null)
+                                    }
+                                  }}
+                                  className="w-full px-2 py-1 text-sm border-none focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                  autoFocus
+                                />
+                              ) : (
+                                <div
+                                  onClick={() => setEditingCell({ row: rowIndex, col: colIndex })}
+                                  className="min-h-[32px] px-2 py-1 cursor-text hover:bg-gray-100 flex items-center"
+                                >
+                                  <span className={cell.value ? '' : 'text-gray-400'}>
+                                    {cell.value || 'Vacío'}
+                                  </span>
+                                  {cell.isEdited && (
+                                    <Edit3 className="w-3 h-3 text-blue-500 ml-auto" />
+                                  )}
+                                  {cell.hasError && (
+                                    <AlertTriangle className={`w-3 h-3 ml-1 ${
+                                      cellError?.severity === 'error' ? 'text-red-500' : 'text-yellow-500'
+                                    }`} />
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          )
+                        })}
+                        <td className="px-2 py-2 text-center">
+                          <button
+                            onClick={() => deleteRow(rowIndex)}
+                            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            title="Eliminar fila"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-          {rawData.length > 10 && (
-            <p className="mt-4 text-sm text-gray-500 text-center">
-              Mostrando 10 de {rawData.length} registros. Todos los registros serán importados.
-            </p>
-          )}
+            {/* Validation Summary */}
+            {validationErrors.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Errores de Validación:</h4>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {validationErrors.slice(0, 10).map((error, index) => (
+                    <div key={index} className={`text-xs p-2 rounded flex items-start space-x-2 ${
+                      error.severity === 'error' 
+                        ? 'bg-red-50 text-red-700 border border-red-200' 
+                        : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                    }`}>
+                      {error.severity === 'error' ? (
+                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      )}
+                      <span>
+                        Fila {error.row + 1}, {error.column}: {error.error}
+                      </span>
+                    </div>
+                  ))}
+                  {validationErrors.length > 10 && (
+                    <div className="text-xs text-gray-500 text-center">
+                      ... y {validationErrors.length - 10} errores más
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Importing Step */}
       {importStep === 'importing' && (
         <div className="space-y-6">
-          {/* Progress Bar */}
           {importProgress && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -977,7 +1256,6 @@ export default function Import() {
             </div>
           )}
 
-          {/* Real-time Log */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Log de Importación en Tiempo Real</h3>
             <div className="bg-gray-900 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm">
@@ -1008,7 +1286,6 @@ export default function Import() {
       {/* Completed Step */}
       {importStep === 'completed' && importResult && (
         <div className="space-y-6">
-          {/* Results Summary */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Resultados de la Importación
@@ -1056,7 +1333,6 @@ export default function Import() {
             </div>
           </div>
 
-          {/* Error Details */}
           {importResult.errors.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Errores Encontrados:</h4>
@@ -1073,7 +1349,6 @@ export default function Import() {
             </div>
           )}
 
-          {/* Final Log */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Log Final de Importación</h3>
             <div className="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
