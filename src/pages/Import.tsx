@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { 
@@ -17,14 +17,11 @@ import {
   X,
   Eye,
   ArrowRight,
-  Edit3,
-  Save,
-  RotateCcw,
-  Trash2,
-  Plus,
-  FileSpreadsheet,
+  ArrowLeft,
+  Link,
   AlertTriangle,
-  Check
+  FileSpreadsheet,
+  Settings
 } from 'lucide-react'
 
 interface ImportResult {
@@ -41,19 +38,21 @@ interface ImportProgress {
   message: string
 }
 
-interface ValidationError {
-  row: number
-  column: string
-  error: string
-  severity: 'error' | 'warning'
+interface ColumnMapping {
+  csvColumn: string
+  dbField: string
+  required: boolean
+  dataType: string
+  example?: string
 }
 
-interface CellData {
-  value: string
-  originalValue: string
-  hasError: boolean
-  error?: string
-  isEdited: boolean
+interface FieldDefinition {
+  key: string
+  label: string
+  required: boolean
+  type: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'array'
+  options?: string[]
+  description?: string
 }
 
 export default function Import() {
@@ -61,167 +60,71 @@ export default function Import() {
   const [activeTab, setActiveTab] = useState('patients')
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [previewData, setPreviewData] = useState<any[]>([])
   const [rawData, setRawData] = useState<any[]>([])
-  const [tableData, setTableData] = useState<CellData[][]>([])
-  const [headers, setHeaders] = useState<string[]>([])
-  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
-  const [importStep, setImportStep] = useState<'upload' | 'edit' | 'importing' | 'completed'>('upload')
+  const [csvColumns, setCsvColumns] = useState<string[]>([])
+  const [columnMappings, setColumnMappings] = useState<ColumnMapping[]>([])
+  const [mappedData, setMappedData] = useState<any[]>([])
+  const [importStep, setImportStep] = useState<'upload' | 'analyze' | 'preview' | 'importing' | 'completed'>('upload')
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [realTimeLog, setRealTimeLog] = useState<string[]>([])
-  const [dragOver, setDragOver] = useState(false)
-  const [editingCell, setEditingCell] = useState<{row: number, col: number} | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const tabs = [
-    { id: 'patients', name: 'Pacientes', icon: Users, color: 'bg-blue-500' },
-    { id: 'payments', name: 'Pagos', icon: CreditCard, color: 'bg-green-500' },
-    { id: 'appointments', name: 'Citas', icon: Calendar, color: 'bg-purple-500' },
-    { id: 'services', name: 'Servicios', icon: Scissors, color: 'bg-pink-500' }
-  ]
-
-  const getRequiredFields = () => {
-    const fields = {
-      patients: ['nombre_completo'],
-      payments: ['cliente', 'monto', 'metodo_pago'],
-      appointments: ['cliente', 'servicio', 'fecha_hora'],
-      services: ['nombre', 'zona', 'precio_base']
-    }
-    return fields[activeTab as keyof typeof fields] || []
+  // Field definitions for each module
+  const fieldDefinitions: Record<string, FieldDefinition[]> = {
+    patients: [
+      { key: 'nombre_completo', label: 'Nombre Completo', required: true, type: 'text', description: 'Nombre completo del paciente' },
+      { key: 'telefono', label: 'Teléfono', required: false, type: 'text', description: 'Número de teléfono' },
+      { key: 'cumpleanos', label: 'Fecha de Nacimiento', required: false, type: 'date', description: 'Formato: YYYY-MM-DD' },
+      { key: 'sexo', label: 'Sexo', required: false, type: 'select', options: ['M', 'F'], description: 'M para masculino, F para femenino' },
+      { key: 'localidad', label: 'Localidad', required: false, type: 'text', description: 'Ciudad o localidad' },
+      { key: 'zonas_tratamiento', label: 'Zonas de Tratamiento', required: false, type: 'array', description: 'Separadas por ; (punto y coma)' },
+      { key: 'precio_total', label: 'Precio Total', required: false, type: 'number', description: 'Precio total del tratamiento' },
+      { key: 'metodo_pago_preferido', label: 'Método de Pago Preferido', required: false, type: 'select', options: ['efectivo', 'transferencia', 'bbva', 'clip'] },
+      { key: 'observaciones', label: 'Observaciones', required: false, type: 'text', description: 'Notas adicionales' }
+    ],
+    payments: [
+      { key: 'cliente', label: 'Cliente', required: true, type: 'text', description: 'Nombre del cliente (debe existir)' },
+      { key: 'telefono', label: 'Teléfono', required: false, type: 'text', description: 'Para identificar al cliente' },
+      { key: 'monto', label: 'Monto', required: true, type: 'number', description: 'Cantidad pagada' },
+      { key: 'metodo_pago', label: 'Método de Pago', required: true, type: 'select', options: ['efectivo', 'transferencia', 'bbva', 'clip'] },
+      { key: 'fecha_pago', label: 'Fecha de Pago', required: false, type: 'date', description: 'Formato: YYYY-MM-DD HH:MM' },
+      { key: 'banco', label: 'Banco', required: false, type: 'text', description: 'Nombre del banco' },
+      { key: 'referencia', label: 'Referencia', required: false, type: 'text', description: 'Número de referencia' },
+      { key: 'observaciones', label: 'Observaciones', required: false, type: 'text', description: 'Notas adicionales' },
+      { key: 'tipo_pago', label: 'Tipo de Pago', required: false, type: 'select', options: ['pago_sesion', 'abono', 'transferencia'] }
+    ],
+    appointments: [
+      { key: 'cliente', label: 'Cliente', required: true, type: 'text', description: 'Nombre del cliente (debe existir)' },
+      { key: 'telefono', label: 'Teléfono', required: false, type: 'text', description: 'Para identificar al cliente' },
+      { key: 'servicio', label: 'Servicio', required: true, type: 'text', description: 'Nombre del servicio (debe existir)' },
+      { key: 'fecha_hora', label: 'Fecha y Hora', required: true, type: 'date', description: 'Formato: YYYY-MM-DD HH:MM' },
+      { key: 'numero_sesion', label: 'Número de Sesión', required: false, type: 'number', description: 'Número de sesión' },
+      { key: 'status', label: 'Estado', required: false, type: 'select', options: ['agendada', 'confirmada', 'completada', 'cancelada'] },
+      { key: 'precio_sesion', label: 'Precio de Sesión', required: false, type: 'number', description: 'Precio de la sesión' },
+      { key: 'observaciones', label: 'Observaciones', required: false, type: 'text', description: 'Notas adicionales' }
+    ],
+    services: [
+      { key: 'nombre', label: 'Nombre', required: true, type: 'text', description: 'Nombre del servicio' },
+      { key: 'zona', label: 'Zona', required: true, type: 'text', description: 'Zona corporal del tratamiento' },
+      { key: 'precio_base', label: 'Precio Base', required: true, type: 'number', description: 'Precio base del servicio' },
+      { key: 'descripcion', label: 'Descripción', required: false, type: 'text', description: 'Descripción del servicio' },
+      { key: 'duracion_minutos', label: 'Duración (minutos)', required: false, type: 'number', description: 'Duración en minutos' },
+      { key: 'sesiones_recomendadas', label: 'Sesiones Recomendadas', required: false, type: 'number', description: 'Sesiones recomendadas' },
+      { key: 'tecnologia', label: 'Tecnología', required: false, type: 'text', description: 'Tecnología utilizada' }
+    ]
   }
 
-  const getExpectedHeaders = () => {
-    const expectedHeaders = {
-      patients: ['nombre_completo', 'telefono', 'cumpleanos', 'sexo', 'localidad', 'zonas_tratamiento', 'precio_total', 'metodo_pago_preferido', 'observaciones'],
-      payments: ['cliente', 'telefono', 'monto', 'metodo_pago', 'fecha_pago', 'banco', 'referencia', 'observaciones', 'tipo_pago'],
-      appointments: ['cliente', 'telefono', 'servicio', 'fecha_hora', 'numero_sesion', 'status', 'precio_sesion', 'observaciones'],
-      services: ['nombre', 'descripcion', 'zona', 'precio_base', 'duracion_minutos', 'sesiones_recomendadas', 'tecnologia']
-    }
-    return expectedHeaders[activeTab as keyof typeof expectedHeaders] || []
-  }
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
 
-  const validateCell = (value: string, header: string, rowIndex: number): { isValid: boolean; error?: string; severity?: 'error' | 'warning' } => {
-    const requiredFields = getRequiredFields()
-    
-    // Campo requerido vacío
-    if (requiredFields.includes(header) && (!value || value.trim() === '')) {
-      return { isValid: false, error: 'Campo requerido', severity: 'error' }
-    }
-
-    // Validaciones específicas por tipo de campo
-    switch (header) {
-      case 'email':
-        if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-          return { isValid: false, error: 'Email inválido', severity: 'error' }
-        }
-        break
-      
-      case 'telefono':
-        if (value && !/^\d{10,15}$/.test(value.replace(/\D/g, ''))) {
-          return { isValid: false, error: 'Teléfono debe tener 10-15 dígitos', severity: 'warning' }
-        }
-        break
-      
-      case 'sexo':
-        if (value && !['M', 'F', 'm', 'f'].includes(value)) {
-          return { isValid: false, error: 'Debe ser M o F', severity: 'error' }
-        }
-        break
-      
-      case 'monto':
-      case 'precio_base':
-      case 'precio_total':
-      case 'precio_sesion':
-        if (value && (isNaN(parseFloat(value)) || parseFloat(value) <= 0)) {
-          return { isValid: false, error: 'Debe ser un número mayor a 0', severity: 'error' }
-        }
-        break
-      
-      case 'metodo_pago':
-        if (value && !['efectivo', 'transferencia', 'bbva', 'clip'].includes(value.toLowerCase())) {
-          return { isValid: false, error: 'Métodos válidos: efectivo, transferencia, bbva, clip', severity: 'warning' }
-        }
-        break
-      
-      case 'fecha_hora':
-      case 'fecha_pago':
-      case 'cumpleanos':
-        if (value && isNaN(Date.parse(value))) {
-          return { isValid: false, error: 'Formato de fecha inválido', severity: 'error' }
-        }
-        break
-      
-      case 'numero_sesion':
-      case 'duracion_minutos':
-      case 'sesiones_recomendadas':
-        if (value && (isNaN(parseInt(value)) || parseInt(value) < 1)) {
-          return { isValid: false, error: 'Debe ser un número entero mayor a 0', severity: 'error' }
-        }
-        break
-    }
-
-    return { isValid: true }
-  }
-
-  const validateAllData = () => {
-    const errors: ValidationError[] = []
-    
-    tableData.forEach((row, rowIndex) => {
-      row.forEach((cell, colIndex) => {
-        const header = headers[colIndex]
-        const validation = validateCell(cell.value, header, rowIndex)
-        
-        if (!validation.isValid) {
-          errors.push({
-            row: rowIndex,
-            column: header,
-            error: validation.error || 'Error desconocido',
-            severity: validation.severity || 'error'
-          })
-        }
-      })
-    })
-    
-    setValidationErrors(errors)
-    return errors
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(true)
-  }
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-    
-    const files = Array.from(e.dataTransfer.files)
-    const file = files[0]
-    
-    if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
-      processFile(file)
-    } else {
-      alert('Por favor, sube un archivo CSV válido')
-    }
-  }
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      processFile(file)
-    }
-  }
-
-  const processFile = async (file: File) => {
     setLoading(true)
     setImportResult(null)
-    setTableData([])
-    setHeaders([])
-    setValidationErrors([])
+    setPreviewData([])
+    setRawData([])
+    setCsvColumns([])
+    setColumnMappings([])
+    setMappedData([])
     setImportStep('upload')
     setRealTimeLog([])
 
@@ -233,48 +136,34 @@ export default function Import() {
         throw new Error('El archivo está vacío')
       }
 
-      const fileHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-      const dataRows = lines.slice(1).map((line, index) => {
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+      const data = lines.slice(1).map((line, index) => {
         const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
-        return values
-      }).filter(row => row.some(val => val !== ''))
+        const row: any = { _rowNumber: index + 2 }
+        headers.forEach((header, index) => {
+          row[header] = values[index] || ''
+        })
+        return row
+      }).filter(row => Object.values(row).some(val => val !== '' && val !== row._rowNumber))
 
-      if (dataRows.length === 0) {
+      if (data.length === 0) {
         throw new Error('No se encontraron datos válidos en el archivo')
       }
 
-      // Crear estructura de tabla editable
-      const processedData: CellData[][] = dataRows.map(row => 
-        fileHeaders.map((_, colIndex) => ({
-          value: row[colIndex] || '',
-          originalValue: row[colIndex] || '',
-          hasError: false,
-          isEdited: false
-        }))
-      )
-
-      setHeaders(fileHeaders)
-      setTableData(processedData)
-      setRawData(dataRows.map(row => {
-        const obj: any = { _rowNumber: dataRows.indexOf(row) + 2 }
-        fileHeaders.forEach((header, index) => {
-          obj[header] = row[index] || ''
-        })
-        return obj
-      }))
+      setRawData(data)
+      setCsvColumns(headers)
+      setPreviewData(data.slice(0, 10))
       
-      setImportStep('edit')
+      // Initialize column mappings with auto-detection
+      initializeColumnMappings(headers)
       
-      // Validar datos automáticamente
-      setTimeout(() => {
-        validateAllData()
-      }, 100)
+      setImportStep('analyze')
       
       setRealTimeLog([
         `✅ Archivo cargado exitosamente`,
-        `📊 Se encontraron ${dataRows.length} registros`,
-        `📋 Columnas detectadas: ${fileHeaders.join(', ')}`,
-        `🔍 Validando datos...`
+        `📊 Se encontraron ${data.length} registros`,
+        `📋 Se detectaron ${headers.length} columnas: ${headers.join(', ')}`,
+        `🔍 Iniciando análisis automático de columnas...`
       ])
 
     } catch (error) {
@@ -287,91 +176,136 @@ export default function Import() {
     }
   }
 
-  const updateCell = (rowIndex: number, colIndex: number, newValue: string) => {
-    setTableData(prev => {
-      const newData = [...prev]
-      const validation = validateCell(newValue, headers[colIndex], rowIndex)
-      
-      newData[rowIndex][colIndex] = {
-        value: newValue,
-        originalValue: newData[rowIndex][colIndex].originalValue,
-        hasError: !validation.isValid,
-        error: validation.error,
-        isEdited: newValue !== newData[rowIndex][colIndex].originalValue
-      }
-      
-      return newData
+  const initializeColumnMappings = (headers: string[]) => {
+    const currentFields = fieldDefinitions[activeTab] || []
+    const mappings: ColumnMapping[] = []
+
+    currentFields.forEach(field => {
+      // Try to auto-detect matching columns
+      const matchingColumn = headers.find(header => {
+        const headerLower = header.toLowerCase().replace(/[_\s]/g, '')
+        const fieldLower = field.key.toLowerCase().replace(/[_\s]/g, '')
+        const labelLower = field.label.toLowerCase().replace(/[_\s]/g, '')
+        
+        return headerLower === fieldLower || 
+               headerLower === labelLower ||
+               headerLower.includes(fieldLower) ||
+               fieldLower.includes(headerLower)
+      })
+
+      mappings.push({
+        csvColumn: matchingColumn || '',
+        dbField: field.key,
+        required: field.required,
+        dataType: field.type,
+        example: matchingColumn ? getColumnExample(matchingColumn, rawData) : undefined
+      })
     })
+
+    setColumnMappings(mappings)
+    addLog(`🎯 Auto-detección completada: ${mappings.filter(m => m.csvColumn).length} de ${mappings.length} campos mapeados`)
+  }
+
+  const getColumnExample = (columnName: string, data: any[]): string => {
+    const examples = data.slice(0, 3)
+      .map(row => row[columnName])
+      .filter(val => val && val.toString().trim())
     
-    // Re-validar después de un pequeño delay
-    setTimeout(() => {
-      validateAllData()
-    }, 100)
+    return examples.length > 0 ? examples[0].toString() : ''
   }
 
-  const addRow = () => {
-    const newRow = headers.map(() => ({
-      value: '',
-      originalValue: '',
-      hasError: false,
-      isEdited: false
-    }))
+  const updateColumnMapping = (dbField: string, csvColumn: string) => {
+    setColumnMappings(prev => prev.map(mapping => 
+      mapping.dbField === dbField 
+        ? { 
+            ...mapping, 
+            csvColumn,
+            example: csvColumn ? getColumnExample(csvColumn, rawData) : undefined
+          }
+        : mapping
+    ))
+  }
+
+  const validateMappings = (): { isValid: boolean, errors: string[] } => {
+    const errors: string[] = []
+    const requiredFields = columnMappings.filter(m => m.required)
     
-    setTableData(prev => [...prev, newRow])
-  }
+    requiredFields.forEach(field => {
+      if (!field.csvColumn) {
+        errors.push(`El campo "${fieldDefinitions[activeTab].find(f => f.key === field.dbField)?.label}" es requerido y debe ser mapeado`)
+      }
+    })
 
-  const deleteRow = (rowIndex: number) => {
-    setTableData(prev => prev.filter((_, index) => index !== rowIndex))
-    setTimeout(() => validateAllData(), 100)
-  }
-
-  const resetData = () => {
-    setTableData(prev => 
-      prev.map(row => 
-        row.map(cell => ({
-          ...cell,
-          value: cell.originalValue,
-          hasError: false,
-          error: undefined,
-          isEdited: false
-        }))
-      )
-    )
-    setTimeout(() => validateAllData(), 100)
-  }
-
-  const startImport = async () => {
-    const errors = validateAllData()
-    const criticalErrors = errors.filter(err => err.severity === 'error')
+    // Check for duplicate mappings
+    const usedColumns = columnMappings.filter(m => m.csvColumn).map(m => m.csvColumn)
+    const duplicates = usedColumns.filter((col, index) => usedColumns.indexOf(col) !== index)
     
-    if (criticalErrors.length > 0) {
-      alert(`No se puede importar. Hay ${criticalErrors.length} errores críticos que deben corregirse.`)
+    if (duplicates.length > 0) {
+      errors.push(`Las siguientes columnas están mapeadas múltiples veces: ${duplicates.join(', ')}`)
+    }
+
+    return { isValid: errors.length === 0, errors }
+  }
+
+  const applyMapping = () => {
+    const { isValid, errors } = validateMappings()
+    
+    if (!isValid) {
+      setRealTimeLog(prev => [...prev, ...errors.map(error => `❌ ${error}`)])
       return
     }
 
+    try {
+      const mapped = rawData.map((row, index) => {
+        const mappedRow: any = { _rowNumber: row._rowNumber || index + 2 }
+        
+        columnMappings.forEach(mapping => {
+          if (mapping.csvColumn) {
+            let value = row[mapping.csvColumn]
+            
+            // Apply data type transformations
+            if (mapping.dataType === 'array' && value) {
+              value = value.split(';').map((v: string) => v.trim()).filter((v: string) => v)
+            } else if (mapping.dataType === 'number' && value) {
+              value = parseFloat(value.toString().replace(/[,$]/g, ''))
+            } else if (mapping.dataType === 'boolean' && value) {
+              value = ['true', '1', 'sí', 'si', 'yes'].includes(value.toString().toLowerCase())
+            }
+            
+            mappedRow[mapping.dbField] = value
+          }
+        })
+        
+        return mappedRow
+      })
+
+      setMappedData(mapped)
+      setPreviewData(mapped.slice(0, 10))
+      setImportStep('preview')
+      
+      addLog(`✅ Mapeo aplicado exitosamente`)
+      addLog(`📋 ${mapped.length} registros listos para importar`)
+      
+    } catch (error) {
+      addLog(`❌ Error al aplicar el mapeo: ${error}`)
+    }
+  }
+
+  const startImport = async () => {
     setImportStep('importing')
     setLoading(true)
     setImportResult(null)
     setRealTimeLog([])
 
     try {
-      // Convertir tableData de vuelta a formato de objeto
-      const processedData = tableData.map((row, rowIndex) => {
-        const obj: any = { _rowNumber: rowIndex + 2 }
-        headers.forEach((header, colIndex) => {
-          obj[header] = row[colIndex].value
-        })
-        return obj
-      })
-
       if (activeTab === 'patients') {
-        await importPatientsWithProgress(processedData)
+        await importPatientsWithProgress(mappedData)
       } else if (activeTab === 'payments') {
-        await importPaymentsWithProgress(processedData)
+        await importPaymentsWithProgress(mappedData)
       } else if (activeTab === 'appointments') {
-        await importAppointmentsWithProgress(processedData)
+        await importAppointmentsWithProgress(mappedData)
       } else if (activeTab === 'services') {
-        await importServicesWithProgress(processedData)
+        await importServicesWithProgress(mappedData)
       }
     } catch (error) {
       console.error('Import error:', error)
@@ -391,57 +325,60 @@ export default function Import() {
     addLog(message)
   }
 
-  // Las funciones de importación (mantener las existentes)
+  // Import functions (same as before, but using mappedData instead of rawData)
   const importPatientsWithProgress = async (data: any[]) => {
     const results: ImportResult = { success: 0, errors: [], total: data.length }
     addLog(`🚀 Iniciando importación de ${data.length} pacientes...`)
 
     for (const [index, row] of data.entries()) {
       const rowNumber = row._rowNumber || index + 2
-      const patientName = row['nombre_completo'] || row['nombre'] || `Registro ${rowNumber}`
+      const patientName = row['nombre_completo'] || `Registro ${rowNumber}`
       
       updateProgress(index + 1, data.length, patientName, 'processing', `Procesando: ${patientName}`)
 
       try {
-        if (!row['nombre_completo'] && !row['nombre']) {
+        if (!row['nombre_completo']) {
           const error = `❌ Fila ${rowNumber}: El campo 'nombre_completo' es requerido`
           results.errors.push(error)
           updateProgress(index + 1, data.length, patientName, 'error', error)
           continue
         }
 
-        let zonasTratamiento: string[] = []
-        const zonasStr = row['zonas_tratamiento'] || row['zonas'] || ''
-        if (zonasStr) {
-          zonasTratamiento = zonasStr.split(';').map((z: string) => z.trim()).filter((z: string) => z)
-        }
-
         let sexo = null
         if (row['sexo']) {
-          const sexoUpper = row['sexo'].toUpperCase()
+          const sexoUpper = row['sexo'].toString().toUpperCase()
           if (sexoUpper === 'M' || sexoUpper === 'F') {
             sexo = sexoUpper
+          } else {
+            const error = `❌ Fila ${rowNumber}: El campo 'sexo' debe ser 'M' o 'F'`
+            results.errors.push(error)
+            updateProgress(index + 1, data.length, patientName, 'error', error)
+            continue
           }
         }
 
         let cumpleanos = null
-        if (row['cumpleanos'] || row['fecha_nacimiento']) {
-          const fechaStr = row['cumpleanos'] || row['fecha_nacimiento']
-          const fecha = new Date(fechaStr)
+        if (row['cumpleanos']) {
+          const fecha = new Date(row['cumpleanos'])
           if (!isNaN(fecha.getTime())) {
             cumpleanos = fecha.toISOString().split('T')[0]
+          } else {
+            const error = `❌ Fila ${rowNumber}: Fecha de cumpleaños inválida: ${row['cumpleanos']}`
+            results.errors.push(error)
+            updateProgress(index + 1, data.length, patientName, 'error', error)
+            continue
           }
         }
 
         const patientData = {
-          nombre_completo: row['nombre_completo'] || row['nombre'],
+          nombre_completo: row['nombre_completo'],
           telefono: row['telefono'] || null,
           cumpleanos,
           sexo,
           localidad: row['localidad'] || null,
-          zonas_tratamiento: zonasTratamiento.length > 0 ? zonasTratamiento : null,
+          zonas_tratamiento: Array.isArray(row['zonas_tratamiento']) ? row['zonas_tratamiento'] : null,
           precio_total: row['precio_total'] ? parseFloat(row['precio_total']) : null,
-          metodo_pago_preferido: row['metodo_pago_preferido'] || row['metodo_pago'] || null,
+          metodo_pago_preferido: row['metodo_pago_preferido'] || null,
           observaciones: row['observaciones'] || null
         }
 
@@ -477,18 +414,17 @@ export default function Import() {
 
     for (const [index, row] of data.entries()) {
       const rowNumber = row._rowNumber || index + 2
-      const clienteName = row['cliente'] || row['paciente'] || row['nombre_completo'] || `Registro ${rowNumber}`
+      const clienteName = row['cliente'] || `Registro ${rowNumber}`
       
       updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando pago de: ${clienteName}`)
 
       try {
         let patient = null
-        if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
-          const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
+        if (row['cliente']) {
           const { data: patients } = await supabase
             .from('patients')
             .select('id, nombre_completo')
-            .ilike('nombre_completo', `%${nombreBusqueda}%`)
+            .ilike('nombre_completo', `%${row['cliente']}%`)
             .limit(1)
           patient = patients?.[0]
         }
@@ -509,7 +445,7 @@ export default function Import() {
           continue
         }
 
-        const monto = parseFloat(row['monto'] || row['cantidad'] || '0')
+        const monto = parseFloat(row['monto'] || '0')
         if (monto <= 0) {
           const error = `❌ Fila ${rowNumber}: El monto debe ser mayor a 0`
           results.errors.push(error)
@@ -517,7 +453,7 @@ export default function Import() {
           continue
         }
 
-        const metodoPago = row['metodo_pago'] || row['metodo'] || 'efectivo'
+        const metodoPago = row['metodo_pago'] || 'efectivo'
         if (!['efectivo', 'transferencia', 'bbva', 'clip'].includes(metodoPago)) {
           const error = `❌ Fila ${rowNumber}: Método de pago inválido: ${metodoPago}`
           results.errors.push(error)
@@ -526,9 +462,8 @@ export default function Import() {
         }
 
         let fechaPago = new Date().toISOString()
-        if (row['fecha_pago'] || row['fecha']) {
-          const fechaStr = row['fecha_pago'] || row['fecha']
-          const fecha = new Date(fechaStr)
+        if (row['fecha_pago']) {
+          const fecha = new Date(row['fecha_pago'])
           if (!isNaN(fecha.getTime())) {
             fechaPago = fecha.toISOString()
           }
@@ -578,18 +513,17 @@ export default function Import() {
 
     for (const [index, row] of data.entries()) {
       const rowNumber = row._rowNumber || index + 2
-      const clienteName = row['cliente'] || row['paciente'] || row['nombre_completo'] || `Registro ${rowNumber}`
+      const clienteName = row['cliente'] || `Registro ${rowNumber}`
       
       updateProgress(index + 1, data.length, clienteName, 'processing', `Procesando cita de: ${clienteName}`)
 
       try {
         let patient = null
-        if (row['cliente'] || row['paciente'] || row['nombre_completo']) {
-          const nombreBusqueda = row['cliente'] || row['paciente'] || row['nombre_completo']
+        if (row['cliente']) {
           const { data: patients } = await supabase
             .from('patients')
             .select('id, nombre_completo')
-            .ilike('nombre_completo', `%${nombreBusqueda}%`)
+            .ilike('nombre_completo', `%${row['cliente']}%`)
             .limit(1)
           patient = patients?.[0]
         }
@@ -611,32 +545,30 @@ export default function Import() {
         }
 
         let service = null
-        if (row['servicio'] || row['tratamiento']) {
-          const serviceBusqueda = row['servicio'] || row['tratamiento']
+        if (row['servicio']) {
           const { data: services } = await supabase
             .from('services')
             .select('id, nombre, precio_base')
-            .ilike('nombre', `%${serviceBusqueda}%`)
+            .ilike('nombre', `%${row['servicio']}%`)
             .eq('is_active', true)
             .limit(1)
           service = services?.[0]
         }
 
         if (!service) {
-          const error = `❌ Fila ${rowNumber}: No se encontró el servicio: ${row['servicio'] || row['tratamiento']}`
+          const error = `❌ Fila ${rowNumber}: No se encontró el servicio: ${row['servicio']}`
           results.errors.push(error)
           updateProgress(index + 1, data.length, clienteName, 'error', error)
           continue
         }
 
         let fechaHora = new Date().toISOString()
-        if (row['fecha_hora'] || row['fecha']) {
-          const fechaStr = row['fecha_hora'] || row['fecha']
-          const fecha = new Date(fechaStr)
+        if (row['fecha_hora']) {
+          const fecha = new Date(row['fecha_hora'])
           if (!isNaN(fecha.getTime())) {
             fechaHora = fecha.toISOString()
           } else {
-            const error = `❌ Fila ${rowNumber}: Fecha inválida: ${fechaStr}`
+            const error = `❌ Fila ${rowNumber}: Fecha inválida: ${row['fecha_hora']}`
             results.errors.push(error)
             updateProgress(index + 1, data.length, clienteName, 'error', error)
             continue
@@ -647,8 +579,8 @@ export default function Import() {
           patient_id: patient.id,
           service_id: service.id,
           fecha_hora: fechaHora,
-          numero_sesion: parseInt(row['numero_sesion'] || row['sesion'] || '1'),
-          status: row['status'] || row['estado'] || 'agendada',
+          numero_sesion: parseInt(row['numero_sesion'] || '1'),
+          status: row['status'] || 'agendada',
           precio_sesion: row['precio_sesion'] ? parseFloat(row['precio_sesion']) : service.precio_base,
           observaciones_caja: row['observaciones'] || null,
           operadora_id: userProfile?.id || null
@@ -705,7 +637,7 @@ export default function Import() {
           continue
         }
 
-        const precioBase = parseFloat(row['precio_base'] || row['precio'] || '0')
+        const precioBase = parseFloat(row['precio_base'] || '0')
         if (precioBase <= 0) {
           const error = `❌ Fila ${rowNumber}: El precio base debe ser mayor a 0`
           results.errors.push(error)
@@ -751,40 +683,49 @@ export default function Import() {
 
   const resetImport = () => {
     setImportStep('upload')
-    setTableData([])
-    setHeaders([])
+    setPreviewData([])
     setRawData([])
+    setCsvColumns([])
+    setColumnMappings([])
+    setMappedData([])
     setImportResult(null)
     setImportProgress(null)
     setRealTimeLog([])
-    setValidationErrors([])
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
   }
 
   const downloadTemplate = (type: string) => {
-    let headers: string[] = []
-    let sampleData: string[] = []
-
-    switch (type) {
-      case 'patients':
-        headers = ['nombre_completo', 'telefono', 'cumpleanos', 'sexo', 'localidad', 'zonas_tratamiento', 'precio_total', 'metodo_pago_preferido', 'observaciones']
-        sampleData = ['María García López', '9841234567', '1990-05-15', 'F', 'Playa del Carmen', 'axilas;piernas', '2500', 'efectivo', 'Piel sensible']
-        break
-      case 'payments':
-        headers = ['cliente', 'telefono', 'monto', 'metodo_pago', 'fecha_pago', 'banco', 'referencia', 'observaciones', 'tipo_pago']
-        sampleData = ['María García López', '9841234567', '800', 'efectivo', '2025-01-15 10:30', '', '', 'Pago sesión 1', 'pago_sesion']
-        break
-      case 'appointments':
-        headers = ['cliente', 'telefono', 'servicio', 'fecha_hora', 'numero_sesion', 'status', 'precio_sesion', 'observaciones']
-        sampleData = ['María García López', '9841234567', 'Depilación Láser Axilas', '2025-01-20 10:00', '1', 'agendada', '800', 'Primera sesión']
-        break
-      case 'services':
-        headers = ['nombre', 'descripcion', 'zona', 'precio_base', 'duracion_minutos', 'sesiones_recomendadas', 'tecnologia']
-        sampleData = ['Depilación Láser Facial', 'Tratamiento para zona facial completa', 'cara_completa', '1200', '45', '8', 'Sopranoice']
-        break
-    }
+    const fields = fieldDefinitions[type] || []
+    const headers = fields.map(field => field.key)
+    const sampleData = fields.map(field => {
+      switch (field.key) {
+        case 'nombre_completo': return 'María García López'
+        case 'telefono': return '9841234567'
+        case 'cumpleanos': return '1990-05-15'
+        case 'sexo': return 'F'
+        case 'localidad': return 'Playa del Carmen'
+        case 'zonas_tratamiento': return 'axilas;piernas'
+        case 'precio_total': return '2500'
+        case 'metodo_pago_preferido': return 'efectivo'
+        case 'observaciones': return 'Piel sensible'
+        case 'cliente': return 'María García López'
+        case 'monto': return '800'
+        case 'metodo_pago': return 'efectivo'
+        case 'fecha_pago': return '2025-01-15 10:30'
+        case 'tipo_pago': return 'pago_sesion'
+        case 'servicio': return 'Depilación Láser Axilas'
+        case 'fecha_hora': return '2025-01-20 10:00'
+        case 'numero_sesion': return '1'
+        case 'status': return 'agendada'
+        case 'precio_sesion': return '800'
+        case 'nombre': return 'Depilación Láser Facial'
+        case 'zona': return 'cara_completa'
+        case 'precio_base': return '1200'
+        case 'duracion_minutos': return '45'
+        case 'sesiones_recomendadas': return '8'
+        case 'tecnologia': return 'Sopranoice'
+        default: return ''
+      }
+    })
 
     const csvContent = [headers.join(','), sampleData.join(',')].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -805,14 +746,14 @@ export default function Import() {
       const { data: patientData, error: patientError } = await supabase
         .from('patients')
         .insert([{
-          nombre_completo: 'Paciente Prueba Excel',
+          nombre_completo: 'Paciente Prueba CSV',
           telefono: '9999999999',
           sexo: 'F',
           localidad: 'Prueba',
           zonas_tratamiento: ['axilas', 'piernas'],
           precio_total: 1500.00,
           metodo_pago_preferido: 'efectivo',
-          observaciones: 'Paciente insertado desde interfaz Excel'
+          observaciones: 'Paciente insertado desde prueba de importación CSV'
         }])
         .select()
         .single()
@@ -822,8 +763,8 @@ export default function Import() {
       const { data: serviceData, error: serviceError } = await supabase
         .from('services')
         .insert([{
-          nombre: 'Servicio Prueba Excel',
-          descripcion: 'Servicio de prueba para interfaz Excel',
+          nombre: 'Servicio Prueba CSV',
+          descripcion: 'Servicio de prueba para importación CSV',
           zona: 'test_zone',
           precio_base: 999.99,
           duracion_minutos: 60,
@@ -844,7 +785,7 @@ export default function Import() {
           numero_sesion: 1,
           status: 'agendada',
           precio_sesion: 999.99,
-          observaciones_caja: 'Cita de prueba Excel',
+          observaciones_caja: 'Cita de prueba CSV',
           operadora_id: userProfile?.id
         }])
 
@@ -857,7 +798,7 @@ export default function Import() {
           monto: 999.99,
           metodo_pago: 'efectivo',
           cajera_id: userProfile?.id || '550e8400-e29b-41d4-a716-446655440002',
-          observaciones: 'Pago de prueba Excel',
+          observaciones: 'Pago de prueba CSV',
           tipo_pago: 'pago_sesion'
         }])
 
@@ -873,18 +814,72 @@ export default function Import() {
     }
   }
 
+  const tabs = [
+    { id: 'patients', name: 'Pacientes', icon: Users },
+    { id: 'payments', name: 'Pagos', icon: CreditCard },
+    { id: 'appointments', name: 'Citas', icon: Calendar },
+    { id: 'services', name: 'Servicios', icon: Scissors }
+  ]
+
+  const getStepIndicator = () => {
+    const steps = [
+      { id: 'upload', name: 'Cargar', icon: Upload },
+      { id: 'analyze', name: 'Analizar', icon: Settings },
+      { id: 'preview', name: 'Vista Previa', icon: Eye },
+      { id: 'importing', name: 'Importando', icon: Play },
+      { id: 'completed', name: 'Completado', icon: CheckCircle }
+    ]
+
+    return (
+      <div className="flex items-center justify-center mb-8">
+        {steps.map((step, index) => {
+          const isActive = importStep === step.id
+          const isCompleted = steps.findIndex(s => s.id === importStep) > index
+          const Icon = step.icon
+          
+          return (
+            <div key={step.id} className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                isActive ? 'border-pink-500 bg-pink-500 text-white' :
+                isCompleted ? 'border-green-500 bg-green-500 text-white' :
+                'border-gray-300 text-gray-400'
+              }`}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <span className={`ml-2 text-sm font-medium ${
+                isActive ? 'text-pink-600' :
+                isCompleted ? 'text-green-600' :
+                'text-gray-400'
+              }`}>
+                {step.name}
+              </span>
+              {index < steps.length - 1 && (
+                <ArrowRight className={`w-4 h-4 mx-4 ${
+                  isCompleted ? 'text-green-500' : 'text-gray-300'
+                }`} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-          <FileSpreadsheet className="w-7 h-7 mr-3 text-pink-600" />
-          Importación Excel Avanzada
+          <Upload className="w-7 h-7 mr-3 text-pink-600" />
+          Importación Inteligente de Datos
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          Importa y edita datos con una interfaz tipo Excel con validación en tiempo real
+          Importa datos desde archivos CSV con mapeo automático de columnas
         </p>
       </div>
+
+      {/* Step Indicator */}
+      {getStepIndicator()}
 
       {/* Test Data Button */}
       <div className="mb-6">
@@ -911,7 +906,7 @@ export default function Import() {
                   resetImport()
                 }}
                 disabled={importStep === 'importing'}
-                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-pink-500 text-pink-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -928,9 +923,9 @@ export default function Import() {
       {/* Upload Step */}
       {importStep === 'upload' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Upload Area */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-              <Upload className="w-5 h-5 mr-2" />
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
               Cargar Archivo - {tabs.find(t => t.id === activeTab)?.name}
             </h3>
             
@@ -944,30 +939,20 @@ export default function Import() {
               </button>
             </div>
 
-            <div 
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                dragOver 
-                  ? 'border-pink-400 bg-pink-50' 
-                  : 'border-gray-300 hover:border-pink-400'
-              }`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              <FileSpreadsheet className={`mx-auto h-12 w-12 ${dragOver ? 'text-pink-500' : 'text-gray-400'}`} />
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-pink-400 transition-colors">
+              <FileSpreadsheet className="mx-auto h-12 w-12 text-gray-400" />
               <div className="mt-4">
-                <label htmlFor="file-upload" className="cursor-pointer">
+                <label htmlFor={`file-upload-${activeTab}`} className="cursor-pointer">
                   <span className="mt-2 block text-sm font-medium text-gray-900">
-                    {dragOver ? 'Suelta el archivo aquí' : 'Arrastra un archivo CSV aquí o haz clic para seleccionar'}
+                    Arrastra un archivo CSV aquí o haz clic para seleccionar
                   </span>
                   <input
-                    ref={fileInputRef}
-                    id="file-upload"
-                    name="file-upload"
+                    id={`file-upload-${activeTab}`}
+                    name={`file-upload-${activeTab}`}
                     type="file"
                     accept=".csv"
                     className="sr-only"
-                    onChange={handleFileSelect}
+                    onChange={handleFileUpload}
                     disabled={loading}
                   />
                 </label>
@@ -980,249 +965,240 @@ export default function Import() {
             {loading && (
               <div className="mt-4 flex items-center justify-center">
                 <Loader className="animate-spin h-6 w-6 text-pink-600" />
-                <span className="ml-2 text-sm text-gray-600">Procesando archivo...</span>
+                <span className="ml-2 text-sm text-gray-600">Analizando archivo...</span>
               </div>
             )}
           </div>
 
+          {/* Instructions */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Campos Esperados
+              Campos Disponibles para {tabs.find(t => t.id === activeTab)?.name}
             </h3>
             
-            <div className="space-y-3">
-              <div>
-                <h4 className="text-sm font-medium text-red-600 mb-2">Campos Requeridos:</h4>
-                <div className="flex flex-wrap gap-2">
-                  {getRequiredFields().map(field => (
-                    <span key={field} className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-                      {field}
-                    </span>
-                  ))}
+            <div className="space-y-3 text-sm">
+              {fieldDefinitions[activeTab]?.map((field) => (
+                <div key={field.key} className="flex items-start space-x-3">
+                  <div className={`mt-1 w-2 h-2 rounded-full ${
+                    field.required ? 'bg-red-500' : 'bg-gray-300'
+                  }`} />
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-gray-900">{field.label}</span>
+                      {field.required && <span className="text-red-500 text-xs">*</span>}
+                    </div>
+                    <p className="text-gray-600 text-xs">{field.description}</p>
+                    {field.options && (
+                      <p className="text-blue-600 text-xs">
+                        Opciones: {field.options.join(', ')}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-medium text-gray-600 mb-2">Campos Opcionales:</h4>
-                <div className="flex flex-wrap gap-2">
-                  {getExpectedHeaders()
-                    .filter(field => !getRequiredFields().includes(field))
-                    .map(field => (
-                      <span key={field} className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">
-                        {field}
-                      </span>
-                    ))}
-                </div>
+              ))}
+              <div className="mt-4 text-xs text-gray-500">
+                <span className="flex items-center">
+                  <div className="w-2 h-2 bg-red-500 rounded-full mr-2" />
+                  Campos requeridos
+                </span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Step - Excel-like Interface */}
-      {importStep === 'edit' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Editor de Datos - {tableData.length} registros
-                </h3>
-                {validationErrors.length > 0 && (
-                  <div className="flex items-center space-x-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-500" />
-                    <span className="text-sm text-amber-600">
-                      {validationErrors.filter(e => e.severity === 'error').length} errores,{' '}
-                      {validationErrors.filter(e => e.severity === 'warning').length} advertencias
-                    </span>
-                  </div>
-                )}
-              </div>
+      {/* Analyze Step - Column Mapping */}
+      {importStep === 'analyze' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                Mapeo de Columnas - {csvColumns.length} columnas detectadas
+              </h3>
+              <p className="text-sm text-gray-600">
+                Vincula las columnas de tu CSV con los campos de la base de datos
+              </p>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={resetImport}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Volver
+              </button>
+              <button
+                onClick={applyMapping}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+              >
+                <Link className="w-4 h-4 mr-2" />
+                Aplicar Mapeo
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {columnMappings.map((mapping, index) => {
+              const field = fieldDefinitions[activeTab].find(f => f.key === mapping.dbField)
+              const { isValid, errors } = validateMappings()
+              const hasError = !mapping.csvColumn && mapping.required
               
-              <div className="flex space-x-3">
-                <button
-                  onClick={resetData}
-                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  Restaurar
-                </button>
-                <button
-                  onClick={addRow}
-                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar Fila
-                </button>
-                <button
-                  onClick={resetImport}
-                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Cancelar
-                </button>
-                <button
-                  onClick={startImport}
-                  disabled={validationErrors.filter(e => e.severity === 'error').length > 0}
-                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Importar Datos
-                </button>
-              </div>
-            </div>
-
-            {/* Excel-like Table */}
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="overflow-x-auto max-h-96">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="w-12 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        #
-                      </th>
-                      {headers.map((header, colIndex) => {
-                        const isRequired = getRequiredFields().includes(header)
-                        const hasErrors = validationErrors.some(err => err.column === header)
-                        return (
-                          <th 
-                            key={colIndex} 
-                            className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wider ${
-                              isRequired ? 'text-red-600 bg-red-50' : 'text-gray-500'
-                            } ${hasErrors ? 'border-2 border-red-300' : ''}`}
-                          >
-                            <div className="flex items-center space-x-1">
-                              <span>{header}</span>
-                              {isRequired && <span className="text-red-500">*</span>}
-                              {hasErrors && <AlertTriangle className="w-3 h-3 text-red-500" />}
-                            </div>
-                          </th>
-                        )
-                      })}
-                      <th className="w-16 px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {tableData.map((row, rowIndex) => (
-                      <tr key={rowIndex} className={`hover:bg-gray-50 ${
-                        validationErrors.some(err => err.row === rowIndex) ? 'bg-red-50' : ''
-                      }`}>
-                        <td className="px-3 py-2 text-sm font-medium text-gray-900 bg-gray-50">
-                          {rowIndex + 1}
-                        </td>
-                        {row.map((cell, colIndex) => {
-                          const cellError = validationErrors.find(
-                            err => err.row === rowIndex && err.column === headers[colIndex]
-                          )
-                          const isEditing = editingCell?.row === rowIndex && editingCell?.col === colIndex
-                          
-                          return (
-                            <td 
-                              key={colIndex} 
-                              className={`px-1 py-1 text-sm relative ${
-                                cell.hasError 
-                                  ? cellError?.severity === 'error' 
-                                    ? 'bg-red-100 border border-red-300' 
-                                    : 'bg-yellow-100 border border-yellow-300'
-                                  : cell.isEdited 
-                                    ? 'bg-blue-50 border border-blue-300' 
-                                    : 'border border-gray-200'
-                              }`}
-                              title={cell.error || (cell.isEdited ? 'Valor modificado' : '')}
-                            >
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={cell.value}
-                                  onChange={(e) => updateCell(rowIndex, colIndex, e.target.value)}
-                                  onBlur={() => setEditingCell(null)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === 'Tab') {
-                                      setEditingCell(null)
-                                    }
-                                    if (e.key === 'Escape') {
-                                      updateCell(rowIndex, colIndex, cell.originalValue)
-                                      setEditingCell(null)
-                                    }
-                                  }}
-                                  className="w-full px-2 py-1 text-sm border-none focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                  autoFocus
-                                />
-                              ) : (
-                                <div
-                                  onClick={() => setEditingCell({ row: rowIndex, col: colIndex })}
-                                  className="min-h-[32px] px-2 py-1 cursor-text hover:bg-gray-100 flex items-center"
-                                >
-                                  <span className={cell.value ? '' : 'text-gray-400'}>
-                                    {cell.value || 'Vacío'}
-                                  </span>
-                                  {cell.isEdited && (
-                                    <Edit3 className="w-3 h-3 text-blue-500 ml-auto" />
-                                  )}
-                                  {cell.hasError && (
-                                    <AlertTriangle className={`w-3 h-3 ml-1 ${
-                                      cellError?.severity === 'error' ? 'text-red-500' : 'text-yellow-500'
-                                    }`} />
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          )
-                        })}
-                        <td className="px-2 py-2 text-center">
-                          <button
-                            onClick={() => deleteRow(rowIndex)}
-                            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            title="Eliminar fila"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Validation Summary */}
-            {validationErrors.length > 0 && (
-              <div className="mt-4">
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Errores de Validación:</h4>
-                <div className="max-h-32 overflow-y-auto space-y-1">
-                  {validationErrors.slice(0, 10).map((error, index) => (
-                    <div key={index} className={`text-xs p-2 rounded flex items-start space-x-2 ${
-                      error.severity === 'error' 
-                        ? 'bg-red-50 text-red-700 border border-red-200' 
-                        : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                    }`}>
-                      {error.severity === 'error' ? (
-                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                      ) : (
-                        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                      )}
-                      <span>
-                        Fila {error.row + 1}, {error.column}: {error.error}
+              return (
+                <div key={mapping.dbField} className={`border rounded-lg p-4 ${
+                  hasError ? 'border-red-200 bg-red-50' : 'border-gray-200'
+                }`}>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium text-gray-900">{field?.label}</span>
+                        {mapping.required && <span className="text-red-500 text-xs">*</span>}
+                      </div>
+                      <p className="text-xs text-gray-500">{field?.description}</p>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mt-1">
+                        {mapping.dataType}
                       </span>
                     </div>
-                  ))}
-                  {validationErrors.length > 10 && (
-                    <div className="text-xs text-gray-500 text-center">
-                      ... y {validationErrors.length - 10} errores más
+                    
+                    <div>
+                      <select
+                        value={mapping.csvColumn}
+                        onChange={(e) => updateColumnMapping(mapping.dbField, e.target.value)}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 ${
+                          hasError ? 'border-red-300' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">Seleccionar columna del CSV</option>
+                        {csvColumns.map(column => (
+                          <option key={column} value={column}>
+                            {column}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  )}
+                    
+                    <div>
+                      {mapping.example && (
+                        <div className="text-sm">
+                          <span className="text-gray-500">Ejemplo:</span>
+                          <div className="font-mono text-xs bg-gray-100 px-2 py-1 rounded mt-1">
+                            {mapping.example}
+                          </div>
+                        </div>
+                      )}
+                      {hasError && (
+                        <div className="flex items-center text-red-600 text-xs mt-1">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Campo requerido
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {(() => {
+            const { isValid, errors } = validateMappings()
+            return !isValid && (
+              <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex">
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">
+                      Errores de Mapeo
+                    </h3>
+                    <div className="mt-2 text-sm text-red-700">
+                      <ul className="list-disc list-inside space-y-1">
+                        {errors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+            )
+          })()}
+        </div>
+      )}
+
+      {/* Preview Step */}
+      {importStep === 'preview' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-medium text-gray-900">
+              Vista Previa - {mappedData.length} registros listos para importar
+            </h3>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setImportStep('analyze')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Editar Mapeo
+              </button>
+              <button
+                onClick={startImport}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Iniciar Importación
+              </button>
+            </div>
           </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    #
+                  </th>
+                  {fieldDefinitions[activeTab]?.filter(field => 
+                    columnMappings.find(m => m.dbField === field.key)?.csvColumn
+                  ).map((field) => (
+                    <th key={field.key} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {field.label}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {previewData.map((row, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {index + 1}
+                    </td>
+                    {fieldDefinitions[activeTab]?.filter(field => 
+                      columnMappings.find(m => m.dbField === field.key)?.csvColumn
+                    ).map((field) => (
+                      <td key={field.key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {Array.isArray(row[field.key]) 
+                          ? row[field.key].join(', ') 
+                          : String(row[field.key] || '')
+                        }
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {mappedData.length > 10 && (
+            <p className="mt-4 text-sm text-gray-500 text-center">
+              Mostrando 10 de {mappedData.length} registros. Todos los registros serán importados.
+            </p>
+          )}
         </div>
       )}
 
       {/* Importing Step */}
       {importStep === 'importing' && (
         <div className="space-y-6">
+          {/* Progress Bar */}
           {importProgress && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1256,8 +1232,9 @@ export default function Import() {
             </div>
           )}
 
+          {/* Real-time Log */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Log de Importación en Tiempo Real</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Log de Importación</h3>
             <div className="bg-gray-900 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm">
               {realTimeLog.map((log, index) => (
                 <div 
@@ -1273,11 +1250,6 @@ export default function Import() {
                   {log}
                 </div>
               ))}
-              {realTimeLog.length === 0 && (
-                <div className="text-gray-500 text-center">
-                  Esperando logs de importación...
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1286,6 +1258,7 @@ export default function Import() {
       {/* Completed Step */}
       {importStep === 'completed' && importResult && (
         <div className="space-y-6">
+          {/* Results Summary */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Resultados de la Importación
@@ -1333,6 +1306,7 @@ export default function Import() {
             </div>
           </div>
 
+          {/* Error Details */}
           {importResult.errors.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Errores Encontrados:</h4>
@@ -1348,26 +1322,6 @@ export default function Import() {
               </div>
             </div>
           )}
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Log Final de Importación</h3>
-            <div className="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-              {realTimeLog.map((log, index) => (
-                <div 
-                  key={index} 
-                  className={`mb-1 ${
-                    log.includes('✅') ? 'text-green-400' :
-                    log.includes('❌') ? 'text-red-400' :
-                    log.includes('🚀') ? 'text-blue-400' :
-                    log.includes('🏁') ? 'text-yellow-400' :
-                    'text-gray-300'
-                  }`}
-                >
-                  {log}
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
     </div>
