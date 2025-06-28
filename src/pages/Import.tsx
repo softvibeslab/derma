@@ -1015,7 +1015,7 @@ export default function Import() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-lg font-medium text-gray-900">
-                Mapeo de Columnas - {csvColumns.length} columnas detectadas
+                Mapeo Inteligente - {tabs.find(t => t.id === activeTab)?.name}
               </h3>
               <p className="text-sm text-gray-600">
                 Vincula las columnas de tu CSV con los campos de la base de datos
