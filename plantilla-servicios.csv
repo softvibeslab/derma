@@ -1,0 +1,6 @@
+nombre,descripcion,zona,precio_base,duracion_minutos,sesiones_recomendadas,tecnologia
+Depilación Láser Facial Completa,Tratamiento completo para zona facial incluyendo labio superior y mentón,cara_completa,1200,45,8,Sopranoice
+Depilación Láser Antebrazos,Depilación láser para zona de antebrazos,antebrazos,900,40,10,Sopranoice
+Depilación Láser Muslos,Tratamiento específico para muslos,muslos,1100,60,12,Sopranoice
+Depilación Láser Glúteos,Depilación láser para zona de glúteos,gluteos,800,35,10,Sopranoice
+Depilación Láser Abdomen,Tratamiento para zona abdominal,abdomen,700,30,8,Sopranoice

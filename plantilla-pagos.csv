@@ -1,0 +1,6 @@
+cliente,telefono,monto,metodo_pago,fecha_pago,banco,referencia,observaciones,tipo_pago
+María García López,9841234567,800,efectivo,2025-01-15 10:30,,,Pago sesión 1,pago_sesion
+Ana Rodríguez Pérez,9847654321,750,transferencia,2025-01-16 14:20,BBVA,TRF123456,Transferencia bancaria,pago_sesion
+Carlos Martínez González,9843216789,1200,bbva,2025-01-17 09:15,BBVA,BBVA789012,Pago con terminal,pago_sesion
+Sofía Hernández Torres,9849876543,500,clip,2025-01-18 16:45,Clip,CLIP345678,Pago con Clip,abono
+Isabella Castro Morales,9842468135,900,efectivo,2025-01-19 11:00,,,Pago completo sesión,pago_sesion
