@@ -178,6 +178,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </main>
+
+        {/* Footer Info */}
+        <div className="mt-6 text-center text-xs text-gray-400">
+          <p>Dermacielo v1.0 - Sistema de Gestión con Tecnología Sopranoice</p>
+        </div>
       </div>
     </div>
   )

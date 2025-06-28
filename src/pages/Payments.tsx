@@ -438,6 +438,11 @@ export default function Payments() {
   })
 
   const exportPayments = () => {
+    if (loading) {
+      alert('Por favor espera a que terminen de cargar los datos')
+      return
+    }
+    
     const csvContent = [
       ['Fecha', 'Cliente', 'Teléfono', 'Monto', 'Método de Pago', 'Cajero', 'Referencia', 'Servicio', 'Sesión'].join(','),
       ...filteredPayments.map(payment => [

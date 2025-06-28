@@ -599,7 +599,8 @@ export default function Import() {
           updateProgress(index + 1, data.length, clienteName, 'success', `✅ Cita creada: ${patient.nombre_completo} - ${service.nombre}`)
         }
 
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Pequeña pausa para visualizar el progreso
+        await new Promise(resolve => setTimeout(resolve, 50))
 
       } catch (error) {
         const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`
@@ -668,7 +669,8 @@ export default function Import() {
           updateProgress(index + 1, data.length, serviceName, 'success', `✅ Servicio creado: ${serviceName} - $${precioBase}`)
         }
 
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Pequeña pausa para visualizar el progreso
+        await new Promise(resolve => setTimeout(resolve, 50))
 
       } catch (error) {
         const errorMsg = `❌ Fila ${rowNumber}: Error inesperado - ${error}`

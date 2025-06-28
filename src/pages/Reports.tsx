@@ -223,6 +223,11 @@ export default function Reports() {
   }
 
   const exportReport = () => {
+    if (loading) {
+      alert('Por favor espera a que terminen de cargar los datos')
+      return
+    }
+    
     const reportContent = `
 REPORTE DERMACIELO - ${format(new Date(), 'dd/MM/yyyy')}
 ================================================
