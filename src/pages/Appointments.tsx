@@ -40,6 +40,8 @@ interface Appointment {
     full_name: string
   } | null
 }
+import { validateAppointmentData, sanitizeAppointmentData, getValidUserId } from '../utils/databaseValidation'
+import { useAuth } from '../contexts/AuthContext'
 
 const STATUS_COLORS = {
   agendada: 'bg-blue-100 text-blue-800',
@@ -58,6 +60,7 @@ const STATUS_ICONS = {
 }
 
 export default function Appointments() {
+  const { userProfile } = useAuth()
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [patients, setPatients] = useState<any[]>([])
   const [services, setServices] = useState<any[]>([])
@@ -203,36 +206,31 @@ export default function Appointments() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validaciones
-    if (!formData.patient_id) {
-      alert('Debe seleccionar un paciente')
-      return
-    }
+    // Validar datos del formulario
+    const validation = await validateAppointmentData(formData)
     
-    if (!formData.service_id) {
-      alert('Debe seleccionar un servicio')
-      return
-    }
-    
-    if (!formData.fecha_hora) {
-      alert('Debe seleccionar fecha y hora')
+    if (!validation.isValid) {
+      alert(`Errores en el formulario:\n${validation.errors.join('\n')}`)
       return
     }
 
-    // Validar que la fecha no sea en el pasado
-    if (new Date(formData.fecha_hora) < new Date()) {
-      alert('La fecha y hora no puede ser en el pasado')
-      return
+    // Mostrar advertencias si las hay
+    if (validation.warnings.length > 0) {
+      const proceed = confirm(`Advertencias:\n${validation.warnings.join('\n')}\n\n¿Desea continuar?`)
+      if (!proceed) return
     }
     
     setLoading(true)
 
     try {
-      const appointmentData = {
+      // Obtener un cajera_id válido
+      const validCajeraId = await getValidUserId(userProfile?.id)
+      
+      const appointmentData = await sanitizeAppointmentData({
         patient_id: formData.patient_id,
         service_id: formData.service_id,
         operadora_id: formData.operadora_id || null, // Can be null if no operadora selected
-        cajera_id: userProfile?.id, // Current user
+        cajera_id: validCajeraId, // Valid user ID or null
         fecha_hora: formData.fecha_hora,
         duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
         numero_sesion: formData.numero_sesion,
@@ -240,7 +238,7 @@ export default function Appointments() {
         observaciones_caja: formData.observaciones_caja?.trim() || null,
         observaciones_operadora: formData.observaciones_operadora?.trim() || null,
         is_paid: false
-      }
+      })
 
       console.log('Creating appointment with data:', appointmentData)
       if (isEditing && selectedAppointment) {

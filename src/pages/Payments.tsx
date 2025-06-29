@@ -79,6 +79,7 @@ interface CartItem {
   amount: number
   original_amount: number
 }
+import { validatePaymentData, sanitizePaymentData, getValidUserId } from '../utils/databaseValidation'
 
 const PAYMENT_METHODS = [
   { value: 'efectivo', label: 'Efectivo', color: 'bg-green-100 text-green-800' },
@@ -258,34 +259,27 @@ export default function Payments() {
   const processPayment = async () => {
     if (cart.length === 0) return
     
-    // Validaciones
     const total = calculateTotal()
-    if (total <= 0) {
-      alert('El total debe ser mayor a 0')
-      return
-    }
-    
-    if (paymentMethod === 'efectivo' && amountPaid) {
-      const paid = parseFloat(amountPaid)
-      if (paid < total) {
-        alert('La cantidad recibida debe ser igual o mayor al total')
-        return
-      }
-    }
 
-    // Validación de método de pago
-    if (!paymentMethod) {
-      alert('Debe seleccionar un método de pago')
+    // Validar datos básicos del pago
+    const paymentValidation = await validatePaymentData({
+      patient_id: cart[0]?.patient_id,
+      monto: total,
+      metodo_pago: paymentMethod,
+      cajera_id: userProfile?.id,
+      monto_recibido: amountPaid
+    })
+
+    if (!paymentValidation.isValid) {
+      alert(`Errores en el pago:\n${paymentValidation.errors.join('\n')}`)
       return
     }
 
-    // Validación para métodos que requieren referencia
-    if (['transferencia', 'bbva', 'clip'].includes(paymentMethod)) {
-      // Generar referencia automática si no existe
-      if (!amountPaid) {
-        setAmountPaid(total.toString())
-      }
+    // Mostrar advertencias si las hay
+    if (paymentValidation.warnings.length > 0) {
+      console.warn('Payment warnings:', paymentValidation.warnings)
     }
+
     try {
       setLoading(true)
       const ticketNumber = `TKT-${Date.now()}`
@@ -303,20 +297,25 @@ export default function Payments() {
       for (const [patientId, items] of Object.entries(patientGroups)) {
         const patientTotal = items.reduce((sum, item) => sum + item.amount, 0)
         
+        // Obtener un cajera_id válido
+        const validCajeraId = await getValidUserId(userProfile?.id)
+        
         // Create main payment record
-        const { data: paymentData, error: paymentError } = await supabase
+        const paymentData = await sanitizePaymentData({
+          patient_id: patientId,
+          appointment_id: null, // Para el pago principal del grupo
+          monto: patientTotal,
+          metodo_pago: paymentMethod,
+          cajera_id: validCajeraId,
+          observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)`,
+          tipo_pago: 'pago_sesion',
+          banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
+          referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}` : null
+        })
+
+        const { data: insertedPayment, error: paymentError } = await supabase
           .from('payments')
-          .insert([{
-            patient_id: patientId,
-            appointment_id: null, // Para el pago principal del grupo
-            monto: patientTotal,
-            metodo_pago: paymentMethod,
-            cajera_id: userProfile?.id || null,
-            observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)` || null,
-            tipo_pago: 'pago_sesion',
-            banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
-            referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}` : null
-          }])
+          .insert([paymentData])
           .select()
           .single()
 
@@ -333,23 +332,25 @@ export default function Payments() {
             .eq('id', item.appointment_id)
 
           // Create individual payment record for each appointment
+          const itemPaymentData = await sanitizePaymentData({
+            patient_id: patientId,
+            appointment_id: item.appointment_id,
+            monto: item.amount,
+            metodo_pago: paymentMethod,
+            cajera_id: validCajeraId,
+            observaciones: `${item.service_name} - Sesión ${item.session_number}`,
+            tipo_pago: 'pago_sesion',
+            banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
+            referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}-${item.appointment_id.slice(-4)}` : null
+          })
+
           await supabase
             .from('payments')
-            .insert([{
-              patient_id: patientId,
-              appointment_id: item.appointment_id,
-              monto: item.amount,
-              metodo_pago: paymentMethod,
-              cajera_id: userProfile?.id || null,
-              observaciones: `${item.service_name} - Sesión ${item.session_number}` || null,
-              tipo_pago: 'pago_sesion',
-              banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
-              referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}-${item.appointment_id.slice(-4)}` : null
-            }])
+            .insert([itemPaymentData])
         }
 
         // Generate ticket for this patient
-        generateTicket(paymentData, items, patientTotal, ticketNumber)
+        generateTicket(insertedPayment, items, patientTotal, ticketNumber)
       }
 
       // Reset cart and close modal

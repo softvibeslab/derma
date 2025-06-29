@@ -32,7 +32,7 @@ const allNavigation = [
   { name: 'Importar', href: '/import', icon: Upload, module: 'import' },
   { name: 'Roles', href: '/roles', icon: Shield, module: 'roles' },
   { name: 'Usuarios', href: '/users', icon: UserCog, module: 'users' },
-  { name: 'Test Conexión', href: '/connection-test', icon: Database, module: 'connection' },
+  { name: 'Test DB', href: '/database-test', icon: Database, module: 'testing' },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {

@@ -15,6 +15,7 @@ import Roles from './pages/Roles'
 import Users from './pages/Users'
 import ConnectionTest from './pages/ConnectionTest'
 import Workflow from './pages/Workflow'
+import DatabaseTest from './pages/DatabaseTest'
 
 function App() {
   return (
@@ -111,6 +112,14 @@ function App() {
                     <Route 
                       path="/connection-test" 
                       element={<ConnectionTest />} 
+                    />
+                    <Route 
+                      path="/database-test" 
+                      element={
+                        <ProtectedRoute requiredModule="testing">
+                          <DatabaseTest />
+                        </ProtectedRoute>
+                      } 
                     />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
