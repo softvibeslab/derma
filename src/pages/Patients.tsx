@@ -30,8 +30,6 @@ interface Patient {
   precio_total: number | null
   metodo_pago_preferido: string | null
   observaciones: string | null
-  consentimiento_firmado: boolean
-  fecha_consentimiento: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -69,8 +67,7 @@ export default function Patients() {
     zonas_tratamiento: [] as string[],
     precio_total: '',
     metodo_pago_preferido: '',
-    observaciones: '',
-    consentimiento_firmado: false
+    observaciones: ''
   })
 
   useEffect(() => {
@@ -190,7 +187,6 @@ export default function Patients() {
         precio_total: formData.precio_total ? parseFloat(formData.precio_total) : null,
         metodo_pago_preferido: formData.metodo_pago_preferido || null,
         observaciones: formData.observaciones?.trim() || null
-        // Nota: numero_cliente se genera automáticamente por la base de datos
       }
 
       if (isEditing && selectedPatient) {
@@ -230,8 +226,7 @@ export default function Patients() {
       zonas_tratamiento: [],
       precio_total: '',
       metodo_pago_preferido: '',
-      observaciones: '',
-      consentimiento_firmado: false
+        observaciones: ''
     })
     setSelectedPatient(null)
     setIsEditing(false)
@@ -251,8 +246,7 @@ export default function Patients() {
         zonas_tratamiento: patient.zonas_tratamiento || [],
         precio_total: patient.precio_total?.toString() || '',
         metodo_pago_preferido: patient.metodo_pago_preferido || '',
-        observaciones: patient.observaciones || '',
-        consentimiento_firmado: patient.consentimiento_firmado
+        observaciones: patient.observaciones || ''
       })
     } else {
       resetForm()
@@ -809,20 +803,6 @@ export default function Patients() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                       placeholder="Notas adicionales sobre el paciente..."
                     />
-                  </div>
-
-                  <div className="mt-4">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={formData.consentimiento_firmado}
-                        onChange={(e) => setFormData(prev => ({ ...prev, consentimiento_firmado: e.target.checked }))}
-                        className="rounded border-gray-300 text-pink-600 focus:ring-pink-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700">
-                        Consentimiento informado firmado
-                      </span>
-                    </label>
                   </div>
                 </div>
 

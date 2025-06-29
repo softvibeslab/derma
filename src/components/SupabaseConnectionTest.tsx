@@ -94,10 +94,11 @@ export default function SupabaseConnectionTest() {
 
         const newCounts = {
           patients: counts[0].count || 0,
-          roles: counts[1].count || 0,
+          users: counts[1].count || 0,
           services: counts[2].count || 0,
           appointments: counts[3].count || 0,
-          payments: counts[4].count || 0
+          payments: counts[4].count || 0,
+          roles: 0
         }
 
         setTableCounts(newCounts)
@@ -108,17 +109,17 @@ export default function SupabaseConnectionTest() {
         // Test 4: Check RLS policies
         addTestResult('Verificando Row Level Security (RLS)...')
         
+        let rlsEnabled = false
         // Try to access a protected table to test RLS
         try {
           await supabase.from('users').select('count', { count: 'exact', head: true })
-          const rlsEnabled = true // If we can access, RLS is working
+          rlsEnabled = true // If we can access, RLS is working
+          addTestResult('✅ Row Level Security está configurado')
         } catch (rlsError) {
-          const rlsEnabled = false
+          rlsEnabled = false
           addTestResult('⚠️ Problemas con Row Level Security')
         }
         
-        addTestResult('✅ Row Level Security está configurado')
-
         // Test 5: Test authentication readiness
         addTestResult('Verificando configuración de autenticación...')
         const { data: authData } = await supabase.auth.getSession()

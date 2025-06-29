@@ -359,7 +359,7 @@ export default function Workflow() {
           appointment_id: workflowResults.appointmentId,
           monto: montoTotal,
           metodo_pago: paymentData.metodo_pago,
-          cajera_id: userProfile?.id,
+          cajera_id: userProfile?.id || null,
           observaciones: paymentData.observaciones?.trim() || null,
           tipo_pago: 'pago_sesion',
           referencia: paymentData.metodo_pago !== 'efectivo' ? `REF-${Date.now()}` : null,

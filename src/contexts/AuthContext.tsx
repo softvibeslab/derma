@@ -6,7 +6,7 @@ interface UserProfile {
   id: string
   email: string
   full_name: string
-  role: string
+  role?: string
   role_id?: string
   sucursal: string | null
   is_active: boolean
@@ -102,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Primero intentar obtener el perfil existente
       let { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select('id, email, full_name, role_id, sucursal, is_active, created_at, updated_at')
         .eq('id', userId)
         .single()
 
@@ -124,14 +124,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             defaultRole = 'cosmetologa'
           }
           
+          // Obtener role_id
+          const { data: roleData } = await supabase
+            .from('roles')
+            .select('id')
+            .eq('name', defaultRole)
+            .single()
+          
           const { data: newProfile, error: insertError } = await supabase
             .from('users')
             .insert([
               {
                 id: authUser.user.id,
                 email: authUser.user.email || '',
+                password_hash: 'managed_by_supabase_auth',
                 full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-                role: defaultRole
+                role_id: roleData?.id || null
               }
             ])
             .select()
@@ -148,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               id: authUser.user.id,
               email: authUser.user.email || '',
               full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-              role: defaultRole,
+              role: defaultRole, // Mantener para compatibilidad
               role_id: null,
               sucursal: null,
               is_active: true,
@@ -177,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: authUser.user.id,
           email: authUser.user.email || '',
           full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-          role: 'cajero',
+          role: 'cajero', // Para compatibilidad
           role_id: null,
           sucursal: null,
           is_active: true,
@@ -230,14 +238,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (!error && data.user) {
+        // Obtener role_id
+        const { data: roleData } = await supabase
+          .from('roles')
+          .select('id')
+          .eq('name', role)
+          .single()
+          
         const { error: profileError } = await supabase
           .from('users')
           .insert([
             {
               id: data.user.id,
               email,
+              password_hash: 'managed_by_supabase_auth',
               full_name: fullName,
-              role
+              role_id: roleData?.id || null
             }
           ])
 

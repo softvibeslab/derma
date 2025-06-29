@@ -79,7 +79,7 @@ export function usePermissions() {
     }
 
     // Admin siempre tiene todos los permisos
-    if (userProfile.role === 'administrador') {
+    if (userProfile?.role === 'administrador') {
       console.log('Admin user, granting permission for', module, action)
       return true
     }
@@ -138,7 +138,7 @@ export function usePermissions() {
   }
 
   const isAdmin = (): boolean => {
-    return userProfile?.role === 'administrador'
+    return userProfile?.role === 'administrador' || false
   }
 
   const getModulePermissions = (module: string): string[] => {

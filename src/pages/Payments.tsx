@@ -311,7 +311,7 @@ export default function Payments() {
             appointment_id: null, // Para el pago principal del grupo
             monto: patientTotal,
             metodo_pago: paymentMethod,
-            cajera_id: userProfile?.id,
+            cajera_id: userProfile?.id || null,
             observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)` || null,
             tipo_pago: 'pago_sesion',
             banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
@@ -340,7 +340,7 @@ export default function Payments() {
               appointment_id: item.appointment_id,
               monto: item.amount,
               metodo_pago: paymentMethod,
-              cajera_id: userProfile?.id,
+              cajera_id: userProfile?.id || null,
               observaciones: `${item.service_name} - Sesión ${item.session_number}` || null,
               tipo_pago: 'pago_sesion',
               banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,

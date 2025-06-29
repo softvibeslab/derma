@@ -53,8 +53,8 @@ export type Database = {
         Row: {
           id: string
           email: string
+          password_hash: string
           full_name: string
-          role: string
           role_id: string | null
           sucursal: string | null
           is_active: boolean
@@ -64,16 +64,16 @@ export type Database = {
         Insert: {
           id?: string
           email: string
+          password_hash: string
           full_name: string
-          role?: string
           role_id?: string | null
           sucursal?: string | null
           is_active?: boolean
         }
         Update: {
           email?: string
+          password_hash?: string
           full_name?: string
-          role?: string
           role_id?: string | null
           sucursal?: string | null
           is_active?: boolean
@@ -208,7 +208,7 @@ export type Database = {
           id: string
           patient_id: string
           appointment_id: string | null
-          cajera_id: string
+          cajera_id: string | null
           monto: number
           metodo_pago: string
           fecha_pago: string
@@ -221,7 +221,7 @@ export type Database = {
         Insert: {
           patient_id: string
           appointment_id?: string | null
-          cajera_id: string
+          cajera_id?: string | null
           monto: number
           metodo_pago: string
           fecha_pago?: string
@@ -233,7 +233,7 @@ export type Database = {
         Update: {
           patient_id?: string
           appointment_id?: string | null
-          cajera_id?: string
+          cajera_id?: string | null
           monto?: number
           metodo_pago?: string
           fecha_pago?: string
