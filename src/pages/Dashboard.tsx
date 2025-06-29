@@ -280,20 +280,29 @@ export default function Dashboard() {
       <div className="mt-8 bg-gradient-to-r from-pink-500 to-purple-600 rounded-lg shadow-lg p-6 text-white">
         <h3 className="text-lg font-medium mb-4">Acciones Rápidas</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <button className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors">
+          <button 
+            onClick={() => window.location.href = '/workflow'}
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+          >
+            <Calendar className="w-6 h-6 mb-2" />
+            <p className="font-medium">Flujo Completo</p>
+            <p className="text-sm opacity-90">Proceso 360° paciente → pago</p>
+          </button>
+          <button 
+            onClick={() => window.location.href = '/patients'}
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+          >
             <Users className="w-6 h-6 mb-2" />
             <p className="font-medium">Nuevo Paciente</p>
             <p className="text-sm opacity-90">Registrar un nuevo cliente</p>
           </button>
-          <button className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors">
-            <Calendar className="w-6 h-6 mb-2" />
+          <button 
+            onClick={() => window.location.href = '/appointments'}
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+          >
+            <Clock className="w-6 h-6 mb-2" />
             <p className="font-medium">Agendar Cita</p>
             <p className="text-sm opacity-90">Programar nueva sesión</p>
-          </button>
-          <button className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors">
-            <CreditCard className="w-6 h-6 mb-2" />
-            <p className="font-medium">Procesar Pago</p>
-            <p className="text-sm opacity-90">Registrar nuevo pago</p>
           </button>
         </div>
       </div>

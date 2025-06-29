@@ -77,7 +77,8 @@ export default function Appointments() {
     numero_sesion: 1,
     status: 'agendada',
     precio_sesion: '',
-    observaciones_caja: ''
+    observaciones_caja: '',
+    metodo_pago: ''
   })
 
   useEffect(() => {
@@ -241,7 +242,9 @@ export default function Appointments() {
         numero_sesion: appointment.numero_sesion || 1,
         status: appointment.status,
         precio_sesion: appointment.precio_sesion?.toString() || '',
-        observaciones_caja: appointment.observaciones_caja || ''
+        observaciones_caja: appointment.observaciones_caja || '',
+        observaciones_caja: '',
+        metodo_pago: ''
       })
     } else {
       resetForm()
@@ -670,6 +673,23 @@ export default function Appointments() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                         placeholder="Notas adicionales sobre la cita..."
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Método de Pago
+                      </label>
+                      <select
+                        value={formData.metodo_pago}
+                        onChange={(e) => setFormData(prev => ({ ...prev, metodo_pago: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        <option value="">Sin especificar</option>
+                        <option value="efectivo">Efectivo</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="bbva">BBVA</option>
+                        <option value="clip">Clip</option>
+                      </select>
                     </div>
                   </div>
                 </div>

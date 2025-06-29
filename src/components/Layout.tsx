@@ -17,11 +17,13 @@ import {
   BarChart3,
   Shield,
   UserCog,
-  Database
+  Database,
+  Workflow as WorkflowIcon
 } from 'lucide-react'
 
 const allNavigation = [
   { name: 'Dashboard', href: '/', icon: Home, module: 'dashboard' },
+  { name: 'Flujo 360°', href: '/workflow', icon: WorkflowIcon, module: 'dashboard' },
   { name: 'Pacientes', href: '/patients', icon: Users, module: 'patients' },
   { name: 'Citas', href: '/appointments', icon: Calendar, module: 'appointments' },
   { name: 'Servicios', href: '/services', icon: Scissors, module: 'services' },
