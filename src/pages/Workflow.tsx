@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { format, addWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { validatePatientData, validateAppointmentData, validatePaymentData, sanitizeAppointmentData, sanitizePaymentData, getValidUserId } from '../utils/databaseValidation'
 
 interface Patient {
   id: string
@@ -176,27 +177,19 @@ export default function Workflow() {
   const handleCreatePatient = async () => {
     setProcessingStep('Validando datos del paciente...')
     
-    if (!newPatient.nombre_completo.trim()) {
-      alert('El nombre del paciente es requerido')
+    // Validar datos del paciente
+    const validation = validatePatientData(newPatient)
+    
+    if (!validation.isValid) {
+      alert(`Errores en los datos:\n${validation.errors.join('\n')}`)
       setProcessingStep('')
       return
     }
 
-    // Validaciones adicionales
-    if (newPatient.telefono && newPatient.telefono.trim() && !/^\d{10}$/.test(newPatient.telefono.replace(/\D/g, ''))) {
-      alert('El teléfono debe tener 10 dígitos')
-      setProcessingStep('')
-      return
-    }
-    
-    // Validación de fecha de nacimiento
-    if (newPatient.cumpleanos) {
-      const birthDate = new Date(newPatient.cumpleanos)
-      const today = new Date()
-      const age = today.getFullYear() - birthDate.getFullYear()
-      
-      if (age < 0 || age > 120) {
-        alert('Fecha de nacimiento inválida')
+    // Mostrar advertencias si las hay
+    if (validation.warnings.length > 0) {
+      const proceed = confirm(`Advertencias:\n${validation.warnings.join('\n')}\n\n¿Desea continuar?`)
+      if (!proceed) {
         setProcessingStep('')
         return
       }
@@ -258,15 +251,28 @@ export default function Workflow() {
   const handleCreateAppointment = async () => {
     setProcessingStep('Validando datos de la cita...')
     
-    if (!selectedPatient || !selectedService || !appointmentData.fecha_hora) {
-      alert('Faltan datos para crear la cita')
+    // Validar datos de la cita
+    const appointmentValidation = await validateAppointmentData({
+      patient_id: selectedPatient?.id,
+      service_id: selectedService?.id,
+      fecha_hora: appointmentData.fecha_hora,
+      numero_sesion: appointmentData.numero_sesion,
+      observaciones_caja: appointmentData.observaciones_caja
+    })
+    
+    if (!appointmentValidation.isValid) {
+      alert(`Errores en la cita:\n${appointmentValidation.errors.join('\n')}`)
       setProcessingStep('')
       return
     }
 
-    // Validar que la fecha no sea en el pasado
-    if (new Date(appointmentData.fecha_hora) < new Date()) {
-      alert('La fecha y hora no puede ser en el pasado')
+    // Mostrar advertencias si las hay
+    if (appointmentValidation.warnings.length > 0) {
+      console.warn('Appointment warnings:', appointmentValidation.warnings)
+    }
+    
+    if (!selectedPatient || !selectedService) {
+      alert('Faltan datos para crear la cita')
       setProcessingStep('')
       return
     }
@@ -275,20 +281,25 @@ export default function Workflow() {
     setProcessingStep('Agendando cita en el sistema...')
     
     try {
+      // Obtener un cajera_id válido
+      const validCajeraId = await getValidUserId(userProfile?.id)
+      
+      const appointmentDataToInsert = await sanitizeAppointmentData({
+        patient_id: selectedPatient.id,
+        service_id: selectedService.id,
+        operadora_id: null, // Don't assign operadora automatically
+        cajera_id: validCajeraId,
+        fecha_hora: appointmentData.fecha_hora,
+        duracion_minutos: selectedService.duracion_minutos,
+        numero_sesion: appointmentData.numero_sesion,
+        status: 'agendada',
+        observaciones_caja: appointmentData.observaciones_caja?.trim() || null,
+        is_paid: false
+      })
+
       const { data, error } = await supabase
         .from('appointments')
-        .insert([{
-          patient_id: selectedPatient.id,
-          service_id: selectedService.id,
-          operadora_id: null, // Don't assign operadora automatically
-          cajera_id: userProfile?.id || null,
-          fecha_hora: appointmentData.fecha_hora,
-          duracion_minutos: selectedService.duracion_minutos,
-          numero_sesion: appointmentData.numero_sesion,
-          status: 'agendada',
-          observaciones_caja: appointmentData.observaciones_caja?.trim() || null,
-          is_paid: false
-        }])
+        .insert([appointmentDataToInsert])
         .select()
         .single()
 
@@ -360,57 +371,55 @@ export default function Workflow() {
   const handleProcessPayment = async () => {
     setProcessingStep('Validando datos del pago...')
     
-    if (!selectedPatient || !selectedService || !workflowResults.appointmentId) {
-      alert('Faltan datos para procesar el pago')
-      setProcessingStep('')
-      return
-    }
-
     const descuento = parseFloat(paymentData.descuento) || 0
-    const montoTotal = Math.max(0, selectedService.precio_base - descuento)
+    const montoTotal = selectedService ? Math.max(0, selectedService.precio_base - descuento) : 0
     
-    if (montoTotal <= 0) {
-      alert('El monto total debe ser mayor a 0')
+    // Validar datos del pago
+    const paymentValidation = await validatePaymentData({
+      patient_id: selectedPatient?.id,
+      appointment_id: workflowResults.appointmentId,
+      monto: montoTotal,
+      metodo_pago: paymentData.metodo_pago,
+      cajera_id: userProfile?.id,
+      monto_recibido: paymentData.monto_recibido
+    })
+
+    if (!paymentValidation.isValid) {
+      alert(`Errores en el pago:\n${paymentValidation.errors.join('\n')}`)
       setProcessingStep('')
       return
     }
 
-    if (paymentData.metodo_pago === 'efectivo' && paymentData.monto_recibido) {
-      const recibido = parseFloat(paymentData.monto_recibido)
-      if (recibido < montoTotal) {
-        alert('El monto recibido debe ser mayor o igual al total')
-        setProcessingStep('')
-        return
-      }
-    }
-
-    // Validación de método de pago
-    if (!paymentData.metodo_pago) {
-      alert('Debe seleccionar un método de pago')
-      setProcessingStep('')
-      return
+    // Mostrar advertencias si las hay
+    if (paymentValidation.warnings.length > 0) {
+      console.warn('Payment warnings:', paymentValidation.warnings)
     }
     
     setLoading(true)
     setProcessingStep('Procesando pago...')
     
     try {
+      // Obtener un cajera_id válido
+      const validCajeraId = await getValidUserId(userProfile?.id)
+      
       // Crear pago
       setProcessingStep('Registrando pago en el sistema...')
+      const paymentDataToInsert = await sanitizePaymentData({
+        patient_id: selectedPatient!.id,
+        appointment_id: workflowResults.appointmentId,
+        monto: montoTotal,
+        metodo_pago: paymentData.metodo_pago,
+        cajera_id: validCajeraId,
+        observaciones: paymentData.observaciones?.trim() || null,
+        tipo_pago: 'pago_sesion',
+        referencia: paymentData.metodo_pago !== 'efectivo' ? `REF-${Date.now()}` : null,
+        banco: paymentData.metodo_pago === 'bbva' ? 'BBVA' : 
+               paymentData.metodo_pago === 'clip' ? 'Clip' : null
+      })
+
       const { data: payment, error: paymentError } = await supabase
         .from('payments')
-        .insert([{
-          patient_id: selectedPatient.id,
-          appointment_id: workflowResults.appointmentId,
-          monto: montoTotal,
-          metodo_pago: paymentData.metodo_pago,
-          cajera_id: userProfile?.id || null,
-          observaciones: paymentData.observaciones?.trim() || null,
-          tipo_pago: 'pago_sesion',
-          referencia: paymentData.metodo_pago !== 'efectivo' ? `REF-${Date.now()}` : null,
-          banco: paymentData.metodo_pago === 'bbva' ? 'BBVA' : 
-                 paymentData.metodo_pago === 'clip' ? 'Clip' : null
-        }])
+        .insert([paymentDataToInsert])
         .select()
         .single()
 
