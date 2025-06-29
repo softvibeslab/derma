@@ -16,7 +16,8 @@ import {
   Upload,
   BarChart3,
   Shield,
-  UserCog
+  UserCog,
+  Database
 } from 'lucide-react'
 
 const allNavigation = [
