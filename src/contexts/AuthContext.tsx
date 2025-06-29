@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: authUser } = await supabase.auth.getUser()
         if (authUser.user) {
           // Determinar rol por defecto basado en email
-          let defaultRole = 'cosmetologa'
+          let defaultRole = 'cajero'
           const email = authUser.user.email || ''
           
           if (email.includes('admin')) {
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             defaultRole = 'cosmetologa'
           }
           
-          // Obtener role_id
+          // Get role_id first
           const { data: roleData } = await supabase
             .from('roles')
             .select('id')
@@ -142,12 +142,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 role_id: roleData?.id || null
               }
             ])
-            .select()
+            .select(`
+              id, email, full_name, role_id, sucursal, is_active, created_at, updated_at,
+              roles(name)
+            `)
             .single()
 
           if (!insertError && newProfile) {
             console.log('New profile created:', newProfile)
-            data = newProfile
+            // Transform the data to include role for compatibility
+            data = {
+              ...newProfile,
+              role: newProfile.roles?.name || defaultRole
+            }
             error = null
           } else {
             console.error('Error creating profile:', insertError)
@@ -181,11 +188,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Como último recurso, crear un perfil temporal para evitar errores
       const { data: authUser } = await supabase.auth.getUser()
       if (authUser.user) {
+        let defaultRole = 'cajero'
+        const email = authUser.user.email || ''
+        
+        if (email.includes('admin')) {
+          defaultRole = 'administrador'
+        } else if (email.includes('cajero') || email.includes('cajera')) {
+          defaultRole = 'cajero'
+        } else if (email.includes('cosmetologa') || email.includes('cosmetologo')) {
+          defaultRole = 'cosmetologa'
+        }
+        
         const tempProfile = {
           id: authUser.user.id,
           email: authUser.user.email || '',
           full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-          role: 'cajero', // Para compatibilidad
+          role: defaultRole,
           role_id: null,
           sucursal: null,
           is_active: true,
@@ -227,6 +245,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
     try {
+      // Get role_id first
+      const { data: roleData } = await supabase
+        .from('roles')
+        .select('id')
+        .eq('name', role)
+        .single()
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -238,13 +263,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (!error && data.user) {
-        // Obtener role_id
-        const { data: roleData } = await supabase
-          .from('roles')
-          .select('id')
-          .eq('name', role)
-          .single()
-          
         const { error: profileError } = await supabase
           .from('users')
           .insert([
@@ -253,6 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email,
               password_hash: 'managed_by_supabase_auth',
               full_name: fullName,
+              role: role, // For compatibility
               role_id: roleData?.id || null
             }
           ])

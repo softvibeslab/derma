@@ -280,8 +280,8 @@ export default function Workflow() {
         .insert([{
           patient_id: selectedPatient.id,
           service_id: selectedService.id,
-          operadora_id: userProfile?.id,
-          cajera_id: userProfile?.id,
+          operadora_id: null, // Don't assign operadora automatically
+          cajera_id: userProfile?.id || null,
           fecha_hora: appointmentData.fecha_hora,
           duracion_minutos: selectedService.duracion_minutos,
           numero_sesion: appointmentData.numero_sesion,
@@ -305,7 +305,52 @@ export default function Workflow() {
       
     } catch (error) {
       console.error('Error creating appointment:', error)
-      alert('Error al agendar la cita')
+     
+     // More specific error handling
+     if (error?.code === '23503') {
+       if (error.message.includes('operadora_id_fkey')) {
+         alert('Error: No se pudo asignar la operadora. Se creará la cita sin operadora asignada.')
+         // Retry without operadora_id
+         try {
+           setProcessingStep('Reintentando sin operadora asignada...')
+           const { data: retryData, error: retryError } = await supabase
+             .from('appointments')
+             .insert([{
+               patient_id: selectedPatient.id,
+               service_id: selectedService.id,
+               operadora_id: null,
+               cajera_id: null,
+               fecha_hora: appointmentData.fecha_hora,
+               duracion_minutos: selectedService.duracion_minutos,
+               numero_sesion: appointmentData.numero_sesion,
+               status: 'agendada',
+               observaciones_caja: appointmentData.observaciones_caja?.trim() || null,
+               is_paid: false
+             }])
+             .select()
+             .single()
+           
+           if (retryError) throw retryError
+           
+           setProcessingStep('¡Cita agendada exitosamente!')
+           setWorkflowResults(prev => ({ ...prev, appointmentId: retryData.id }))
+           
+           setTimeout(() => {
+             setProcessingStep('')
+             setCurrentStep(4)
+           }, 1000)
+           
+           return
+         } catch (retryError) {
+           console.error('Retry also failed:', retryError)
+           alert('Error al agendar la cita. Por favor intenta más tarde.')
+         }
+       } else {
+         alert(`Error de base de datos: ${error.message}`)
+       }
+     } else {
+       alert(`Error al agendar la cita: ${error?.message || 'Error desconocido'}`)
+     }
       setProcessingStep('')
     } finally {
       setLoading(false)

@@ -63,6 +63,9 @@ export default function Appointments() {
   const [services, setServices] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingUsers, setLoadingUsers] = useState(true)
+  const [loadingPatients, setLoadingPatients] = useState(true)
+  const [loadingServices, setLoadingServices] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
@@ -87,6 +90,10 @@ export default function Appointments() {
 
   const fetchData = async () => {
     try {
+      setLoadingPatients(true)
+      setLoadingServices(true)
+      setLoadingUsers(true)
+      
       const startDate = startOfMonth(currentDate)
       const endDate = endOfMonth(currentDate)
 
@@ -107,19 +114,52 @@ export default function Appointments() {
 
       // Fetch patients, services, and users for the form
       const [patientsRes, servicesRes, usersRes] = await Promise.all([
-        supabase.from('patients').select('id, nombre_completo').eq('is_active', true),
-        supabase.from('services').select('*').eq('is_active', true),
-        supabase.from('users').select('id, full_name').eq('is_active', true)
+        supabase
+          .from('patients')
+          .select('id, nombre_completo, telefono')
+          .eq('is_active', true)
+          .order('nombre_completo'),
+        supabase
+          .from('services')
+          .select('id, nombre, zona, precio_base, duracion_minutos')
+          .eq('is_active', true)
+          .order('nombre'),
+        supabase
+          .from('users')
+          .select('id, full_name, role_id, roles(name)')
+          .eq('is_active', true)
+          .order('full_name')
       ])
+
+      console.log('Fetched data:', { 
+        patients: patientsRes.data?.length, 
+        services: servicesRes.data?.length, 
+        users: usersRes.data?.length 
+      })
+
+      if (patientsRes.error) {
+        console.error('Error fetching patients:', patientsRes.error)
+      }
+      if (servicesRes.error) {
+        console.error('Error fetching services:', servicesRes.error)
+      }
+      if (usersRes.error) {
+        console.error('Error fetching users:', usersRes.error)
+      }
 
       setAppointments(appointmentsData || [])
       setPatients(patientsRes.data || [])
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
+      
     } catch (error) {
       console.error('Error fetching data:', error)
+      alert('Error al cargar los datos. Por favor recarga la página.')
     } finally {
       setLoading(false)
+      setLoadingPatients(false)
+      setLoadingServices(false)
+      setLoadingUsers(false)
     }
   }
 
@@ -191,8 +231,8 @@ export default function Appointments() {
       const appointmentData = {
         patient_id: formData.patient_id,
         service_id: formData.service_id,
-        operadora_id: formData.operadora_id || null,
-        cajera_id: userProfile?.id || null,
+        operadora_id: formData.operadora_id || null, // Can be null if no operadora selected
+        cajera_id: userProfile?.id, // Current user
         fecha_hora: formData.fecha_hora,
         duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
         numero_sesion: formData.numero_sesion,
@@ -202,6 +242,7 @@ export default function Appointments() {
         is_paid: false
       }
 
+      console.log('Creating appointment with data:', appointmentData)
       if (isEditing && selectedAppointment) {
         const { error } = await supabase
           .from('appointments')
@@ -223,7 +264,21 @@ export default function Appointments() {
       alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
     } catch (error) {
       console.error('Error saving appointment:', error)
-      alert('Error al guardar la cita. Por favor intenta de nuevo.')
+      
+      // More specific error handling
+      if (error?.code === '23503') {
+        if (error.message.includes('operadora_id_fkey')) {
+          alert('La operadora seleccionada no existe. Por favor selecciona otra o deja el campo vacío.')
+        } else if (error.message.includes('patient_id_fkey')) {
+          alert('El paciente seleccionado no existe. Por favor selecciona otro paciente.')
+        } else if (error.message.includes('service_id_fkey')) {
+          alert('El servicio seleccionado no existe. Por favor selecciona otro servicio.')
+        } else {
+          alert('Error de relación en la base de datos. Verifica que todos los datos sean válidos.')
+        }
+      } else {
+        alert(`Error al guardar la cita: ${error?.message || 'Error desconocido'}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -558,63 +613,97 @@ export default function Appointments() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Paciente *
                       </label>
-                      <select
-                        required
-                        value={formData.patient_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, patient_id: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                      >
-                        <option value="">Seleccionar paciente</option>
-                        {patients.map((patient) => (
-                          <option key={patient.id} value={patient.id}>
-                            {patient.nombre_completo}
-                          </option>
-                        ))}
-                      </select>
+                      {loadingPatients ? (
+                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                          Cargando pacientes...
+                        </div>
+                      ) : (
+                        <select
+                          required
+                          value={formData.patient_id}
+                          onChange={(e) => setFormData(prev => ({ ...prev, patient_id: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        >
+                          <option value="">Seleccionar paciente</option>
+                          {patients.map((patient) => (
+                            <option key={patient.id} value={patient.id}>
+                              {patient.nombre_completo}
+                              {patient.telefono && ` - ${patient.telefono}`}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {patients.length === 0 && !loadingPatients && (
+                        <p className="text-sm text-red-600 mt-1">
+                          No hay pacientes disponibles. <a href="/patients" className="underline">Crear paciente</a>
+                        </p>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Servicio *
                       </label>
-                      <select
-                        required
-                        value={formData.service_id}
-                        onChange={(e) => {
-                          const service = services.find(s => s.id === e.target.value)
-                          setFormData(prev => ({ 
-                            ...prev, 
-                            service_id: e.target.value,
-                            precio_sesion: service?.precio_base?.toString() || ''
-                          }))
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                      >
-                        <option value="">Seleccionar servicio</option>
-                        {services.map((service) => (
-                          <option key={service.id} value={service.id}>
-                            {service.nombre} - {service.zona} (${service.precio_base})
-                          </option>
-                        ))}
-                      </select>
+                      {loadingServices ? (
+                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                          Cargando servicios...
+                        </div>
+                      ) : (
+                        <select
+                          required
+                          value={formData.service_id}
+                          onChange={(e) => {
+                            const service = services.find(s => s.id === e.target.value)
+                            setFormData(prev => ({ 
+                              ...prev, 
+                              service_id: e.target.value,
+                              duracion_minutos: service?.duracion_minutos?.toString() || ''
+                            }))
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        >
+                          <option value="">Seleccionar servicio</option>
+                          {services.map((service) => (
+                            <option key={service.id} value={service.id}>
+                              {service.nombre} - {service.zona} (${service.precio_base?.toLocaleString()})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {services.length === 0 && !loadingServices && (
+                        <p className="text-sm text-red-600 mt-1">
+                          No hay servicios disponibles. <a href="/services" className="underline">Crear servicio</a>
+                        </p>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Operadora
+                        Operadora (Opcional)
                       </label>
-                      <select
-                        value={formData.operadora_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, operadora_id: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                      >
-                        <option value="">Sin asignar</option>
-                        {users.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
+                      {loadingUsers ? (
+                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                          Cargando usuarios...
+                        </div>
+                      ) : (
+                        <select
+                          value={formData.operadora_id}
+                          onChange={(e) => setFormData(prev => ({ ...prev, operadora_id: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        >
+                          <option value="">Sin asignar</option>
+                          {users.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.full_name} ({user.roles?.name || 'Sin rol'})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {users.length === 0 && !loadingUsers && (
+                        <p className="text-sm text-yellow-600 mt-1">
+                          No hay usuarios disponibles para asignar como operadora.
+                        </p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
