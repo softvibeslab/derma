@@ -116,7 +116,8 @@ export function usePermissions() {
       'reports',
       'import',
       'roles',
-      'users'
+      'users',
+      'connection'
     ]
 
     const accessible = allModules.filter(module => canAccessModule(module))
