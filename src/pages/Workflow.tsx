@@ -703,6 +703,14 @@ export default function Workflow() {
                   />
                 </div>
 
+                {/* Indicador de progreso durante la creación */}
+                {loading && (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-gray-600">Creando paciente...</p>
+                  </div>
+                )}
+
                 <button
                   onClick={handleCreatePatient}
                   disabled={loading || !newPatient.nombre_completo.trim()}
@@ -710,6 +718,13 @@ export default function Workflow() {
                 >
                   {loading ? 'Creando Paciente...' : 'Crear Paciente y Continuar'}
                 </button>
+                
+                {/* Mensaje de ayuda */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-blue-800 text-sm">
+                    💡 <strong>Tip:</strong> Haz clic en "Datos de Prueba" para llenar automáticamente el formulario con información de ejemplo.
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -759,6 +774,14 @@ export default function Workflow() {
                 </div>
               ))}
             </div>
+            
+            {services.length === 0 && (
+              <div className="text-center py-8">
+                <Scissors className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500">No hay servicios disponibles</p>
+                <p className="text-gray-400 text-sm">Contacta al administrador para agregar servicios</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -821,6 +844,14 @@ export default function Workflow() {
                   placeholder="Notas especiales para la cita..."
                 />
               </div>
+
+              {/* Indicador de progreso durante la creación de cita */}
+              {loading && (
+                <div className="text-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">Agendando cita...</p>
+                </div>
+              )}
 
               <button
                 onClick={handleCreateAppointment}
@@ -943,6 +974,14 @@ export default function Workflow() {
                 )}
               </div>
 
+              {/* Indicador de progreso durante el pago */}
+              {loading && (
+                <div className="text-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">Procesando pago...</p>
+                </div>
+              )}
+
               <button
                 onClick={handleProcessPayment}
                 disabled={loading || calculateTotal() <= 0}
@@ -981,22 +1020,46 @@ export default function Workflow() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <FileText className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                  <div className="flex items-center justify-center mb-2">
+                    <FileText className="w-8 h-8 text-blue-600" />
+                  </div>
                   <p className="text-blue-800 font-medium">Expediente</p>
                   <p className="text-blue-600 text-sm">Actualizado</p>
                 </div>
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <Calendar className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+                  <div className="flex items-center justify-center mb-2">
+                    <Calendar className="w-8 h-8 text-purple-600" />
+                  </div>
                   <p className="text-purple-800 font-medium">Próxima Cita</p>
                   <p className="text-purple-600 text-sm">
                     {appointmentData.fecha_hora && format(addWeeks(new Date(appointmentData.fecha_hora), 4), 'dd MMM yyyy', { locale: es })}
                   </p>
                 </div>
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                  <div className="flex items-center justify-center mb-2">
+                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  </div>
                   <p className="text-green-800 font-medium">Pago</p>
                   <p className="text-green-600 text-sm">Procesado</p>
                 </div>
+              </div>
+
+              {/* Acciones adicionales */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => window.location.href = '/patients'}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  Ver Expediente del Paciente
+                </button>
+                <button
+                  onClick={() => window.location.href = '/reports'}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Ver Reportes
+                </button>
               </div>
 
               <button
