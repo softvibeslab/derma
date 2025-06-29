@@ -308,10 +308,11 @@ export default function Payments() {
           .from('payments')
           .insert([{
             patient_id: patientId,
+            appointment_id: null, // Para el pago principal del grupo
             monto: patientTotal,
             metodo_pago: paymentMethod,
             cajera_id: userProfile?.id,
-            observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)`,
+            observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)` || null,
             tipo_pago: 'pago_sesion',
             banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
             referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}` : null
@@ -326,9 +327,8 @@ export default function Payments() {
           await supabase
             .from('appointments')
             .update({ 
-              metodo_pago: paymentMethod,
               status: 'completada',
-              precio_sesion: item.amount
+              is_paid: true
             })
             .eq('id', item.appointment_id)
 
@@ -341,7 +341,7 @@ export default function Payments() {
               monto: item.amount,
               metodo_pago: paymentMethod,
               cajera_id: userProfile?.id,
-              observaciones: `${item.service_name} - Sesión ${item.session_number}`,
+              observaciones: `${item.service_name} - Sesión ${item.session_number}` || null,
               tipo_pago: 'pago_sesion',
               banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
               referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}-${item.appointment_id.slice(-4)}` : null

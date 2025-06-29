@@ -65,12 +65,11 @@ export default function SupabaseConnectionTest() {
       // Test 2: Check if tables exist
       addTestResult('Verificando existencia de tablas...')
       const tableTests = await Promise.allSettled([
-        supabase.from('users').select('count', { count: 'exact', head: true }),
+        supabase.from('roles').select('count', { count: 'exact', head: true }),
         supabase.from('patients').select('count', { count: 'exact', head: true }),
         supabase.from('services').select('count', { count: 'exact', head: true }),
         supabase.from('appointments').select('count', { count: 'exact', head: true }),
-        supabase.from('payments').select('count', { count: 'exact', head: true }),
-        supabase.from('roles').select('count', { count: 'exact', head: true })
+        supabase.from('payments').select('count', { count: 'exact', head: true })
       ])
 
       const tablesExist = tableTests.every(result => result.status === 'fulfilled')
@@ -87,20 +86,18 @@ export default function SupabaseConnectionTest() {
         addTestResult('Contando registros en tablas...')
         const counts = await Promise.all([
           supabase.from('patients').select('*', { count: 'exact', head: true }),
-          supabase.from('users').select('*', { count: 'exact', head: true }),
+          supabase.from('roles').select('*', { count: 'exact', head: true }),
           supabase.from('services').select('*', { count: 'exact', head: true }),
           supabase.from('appointments').select('*', { count: 'exact', head: true }),
-          supabase.from('payments').select('*', { count: 'exact', head: true }),
-          supabase.from('roles').select('*', { count: 'exact', head: true })
+          supabase.from('payments').select('*', { count: 'exact', head: true })
         ])
 
         const newCounts = {
           patients: counts[0].count || 0,
-          users: counts[1].count || 0,
+          roles: counts[1].count || 0,
           services: counts[2].count || 0,
           appointments: counts[3].count || 0,
-          payments: counts[4].count || 0,
-          roles: counts[5].count || 0
+          payments: counts[4].count || 0
         }
 
         setTableCounts(newCounts)

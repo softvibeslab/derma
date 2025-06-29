@@ -76,9 +76,9 @@ export default function Appointments() {
     fecha_hora: '',
     numero_sesion: 1,
     status: 'agendada',
-    precio_sesion: '',
     observaciones_caja: '',
-    metodo_pago: ''
+    observaciones_operadora: '',
+    duracion_minutos: ''
   })
 
   useEffect(() => {
@@ -189,11 +189,17 @@ export default function Appointments() {
 
     try {
       const appointmentData = {
-        ...formData,
-        precio_sesion: formData.precio_sesion ? parseFloat(formData.precio_sesion) : null,
+        patient_id: formData.patient_id,
+        service_id: formData.service_id,
         operadora_id: formData.operadora_id || null,
         cajera_id: userProfile?.id || null,
-        metodo_pago: formData.metodo_pago || null
+        fecha_hora: formData.fecha_hora,
+        duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
+        numero_sesion: formData.numero_sesion,
+        status: formData.status,
+        observaciones_caja: formData.observaciones_caja?.trim() || null,
+        observaciones_operadora: formData.observaciones_operadora?.trim() || null,
+        is_paid: false
       }
 
       if (isEditing && selectedAppointment) {
@@ -231,9 +237,9 @@ export default function Appointments() {
       fecha_hora: '',
       numero_sesion: 1,
       status: 'agendada',
-      precio_sesion: '',
       observaciones_caja: '',
-      metodo_pago: ''
+      observaciones_operadora: '',
+      duracion_minutos: ''
     })
     setSelectedAppointment(null)
     setIsEditing(false)
@@ -250,9 +256,9 @@ export default function Appointments() {
         fecha_hora: appointment.fecha_hora.slice(0, 16),
         numero_sesion: appointment.numero_sesion || 1,
         status: appointment.status,
-        precio_sesion: appointment.precio_sesion?.toString() || '',
         observaciones_caja: appointment.observaciones_caja || '',
-        metodo_pago: appointment.metodo_pago || ''
+        observaciones_operadora: appointment.observaciones_operadora || '',
+        duracion_minutos: appointment.duracion_minutos?.toString() || ''
       })
     } else {
       resetForm()
@@ -642,30 +648,14 @@ export default function Appointments() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estado
-                        </label>
-                        <select
-                          value={formData.status}
-                          onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                        >
-                          <option value="agendada">Agendada</option>
-                          <option value="confirmada">Confirmada</option>
-                          <option value="completada">Completada</option>
-                          <option value="cancelada">Cancelada</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Precio de Sesión
+                          Duración (minutos)
                         </label>
                         <input
                           type="number"
-                          step="0.01"
-                          value={formData.precio_sesion}
-                          onChange={(e) => setFormData(prev => ({ ...prev, precio_sesion: e.target.value }))}
+                          value={formData.duracion_minutos}
+                          onChange={(e) => setFormData(prev => ({ ...prev, duracion_minutos: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                          placeholder="60"
                         />
                       </div>
                     </div>
@@ -681,30 +671,41 @@ export default function Appointments() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                         placeholder="Notas adicionales sobre la cita..."
                       />
-                    </div>
+
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Método de Pago
+                        Observaciones de Operadora
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={formData.observaciones_operadora}
+                        onChange={(e) => setFormData(prev => ({ ...prev, observaciones_operadora: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        placeholder="Notas técnicas del tratamiento..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Estado
                       </label>
                       <select
-                        value={formData.metodo_pago}
-                        onChange={(e) => setFormData(prev => ({ ...prev, metodo_pago: e.target.value }))}
+                        value={formData.status}
+                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                       >
-                        <option value="">Sin especificar</option>
-                        <option value="efectivo">Efectivo</option>
-                        <option value="transferencia">Transferencia</option>
-                        <option value="bbva">BBVA</option>
-                        <option value="clip">Clip</option>
+                        <option value="agendada">Agendada</option>
+                        <option value="completada">Completada</option>
+                        <option value="cancelada">Cancelada</option>
                       </select>
+                    </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                   <button
-                    type="submit"
+                        Observaciones de Caja
                     disabled={loading}
                     className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 text-base font-medium text-white hover:from-pink-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
                   >

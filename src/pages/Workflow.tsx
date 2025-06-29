@@ -245,10 +245,11 @@ export default function Workflow() {
           operadora_id: userProfile?.id,
           cajera_id: userProfile?.id,
           fecha_hora: appointmentData.fecha_hora,
+          duracion_minutos: selectedService.duracion_minutos,
           numero_sesion: appointmentData.numero_sesion,
           status: 'agendada',
-          precio_sesion: selectedService.precio_base,
-          observaciones_caja: appointmentData.observaciones_caja?.trim() || null
+          observaciones_caja: appointmentData.observaciones_caja?.trim() || null,
+          is_paid: false
         }])
         .select()
         .single()
@@ -321,7 +322,7 @@ export default function Workflow() {
         .from('appointments')
         .update({ 
           status: 'completada',
-          metodo_pago: paymentData.metodo_pago
+          is_paid: true
         })
         .eq('id', workflowResults.appointmentId)
 

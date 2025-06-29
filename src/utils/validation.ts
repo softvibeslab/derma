@@ -95,7 +95,7 @@ export const validateAppointmentForm = (data: any): { isValid: boolean; errors: 
   }
 
   if (data.precio_sesion && !validatePositiveNumber(data.precio_sesion)) {
-    errors.push('El precio de sesión debe ser un número positivo')
+    errors.push('La duración debe ser un número positivo')
   }
 
   return {
@@ -135,6 +135,10 @@ export const validateServiceForm = (data: any): { isValid: boolean; errors: stri
 
 export const validatePaymentForm = (data: any): { isValid: boolean; errors: string[] } => {
   const errors: string[] = []
+
+  if (!data.cajera_id) {
+    errors.push('Debe estar autenticado como cajero para procesar pagos')
+  }
 
   if (!data.metodo_pago) {
     errors.push('Debe seleccionar un método de pago')

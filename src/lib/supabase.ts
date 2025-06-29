@@ -109,8 +109,6 @@ export type Database = {
           precio_total?: number | null
           metodo_pago_preferido?: string | null
           observaciones?: string | null
-          consentimiento_firmado?: boolean
-          fecha_consentimiento?: string | null
           is_active?: boolean
         }
         Update: {
@@ -174,11 +172,9 @@ export type Database = {
           duracion_minutos: number | null
           numero_sesion: number | null
           status: string
-          precio_sesion: number | null
-          metodo_pago: string | null
           observaciones_caja: string | null
           observaciones_operadora: string | null
-          proxima_cita: string | null
+          is_paid: boolean
           created_at: string
           updated_at: string
         }
@@ -191,11 +187,9 @@ export type Database = {
           duracion_minutos?: number | null
           numero_sesion?: number | null
           status?: string
-          precio_sesion?: number | null
-          metodo_pago?: string | null
           observaciones_caja?: string | null
           observaciones_operadora?: string | null
-          proxima_cita?: string | null
+          is_paid?: boolean
         }
         Update: {
           patient_id?: string
@@ -206,11 +200,7 @@ export type Database = {
           duracion_minutos?: number | null
           numero_sesion?: number | null
           status?: string
-          precio_sesion?: number | null
-          metodo_pago?: string | null
-          observaciones_caja?: string | null
-          observaciones_operadora?: string | null
-          proxima_cita?: string | null
+          is_paid?: boolean
         }
       }
       payments: {
@@ -218,10 +208,10 @@ export type Database = {
           id: string
           patient_id: string
           appointment_id: string | null
+          cajera_id: string
           monto: number
           metodo_pago: string
           fecha_pago: string
-          cajera_id: string | null
           banco: string | null
           referencia: string | null
           observaciones: string | null
@@ -231,10 +221,10 @@ export type Database = {
         Insert: {
           patient_id: string
           appointment_id?: string | null
+          cajera_id: string
           monto: number
           metodo_pago: string
           fecha_pago?: string
-          cajera_id?: string | null
           banco?: string | null
           referencia?: string | null
           observaciones?: string | null
@@ -243,10 +233,10 @@ export type Database = {
         Update: {
           patient_id?: string
           appointment_id?: string | null
+          cajera_id?: string
           monto?: number
           metodo_pago?: string
           fecha_pago?: string
-          cajera_id?: string | null
           banco?: string | null
           referencia?: string | null
           observaciones?: string | null
@@ -262,8 +252,6 @@ export type Database = {
           sesiones_completadas: number
           precio_total: number | null
           fecha_inicio: string | null
-          fecha_fin: string | null
-          status: string
           observaciones: string | null
           created_at: string
           updated_at: string

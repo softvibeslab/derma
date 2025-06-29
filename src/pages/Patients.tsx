@@ -189,9 +189,8 @@ export default function Patients() {
         zonas_tratamiento: formData.zonas_tratamiento.length > 0 ? formData.zonas_tratamiento : null,
         precio_total: formData.precio_total ? parseFloat(formData.precio_total) : null,
         metodo_pago_preferido: formData.metodo_pago_preferido || null,
-        observaciones: formData.observaciones?.trim() || null,
-        consentimiento_firmado: formData.consentimiento_firmado,
-        fecha_consentimiento: formData.consentimiento_firmado ? new Date().toISOString().split('T')[0] : null,
+        observaciones: formData.observaciones?.trim() || null
+        // Nota: numero_cliente se genera automáticamente por la base de datos
       }
 
       if (isEditing && selectedPatient) {
