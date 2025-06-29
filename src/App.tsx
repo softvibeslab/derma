@@ -13,9 +13,7 @@ import Reports from './pages/Reports'
 import Import from './pages/Import'
 import Roles from './pages/Roles'
 import Users from './pages/Users'
-import ConnectionTest from './pages/ConnectionTest'
 import Workflow from './pages/Workflow'
-import DatabaseTest from './pages/DatabaseTest'
 
 function App() {
   return (
@@ -34,6 +32,14 @@ function App() {
                       element={
                         <ProtectedRoute requiredModule="dashboard">
                           <Dashboard />
+                        </ProtectedRoute>
+                      } 
+                    />
+                    <Route 
+                      path="/workflow" 
+                      element={
+                        <ProtectedRoute requiredModule="dashboard">
+                          <Workflow />
                         </ProtectedRoute>
                       } 
                     />
@@ -98,26 +104,6 @@ function App() {
                       element={
                         <ProtectedRoute requiredModule="users">
                           <Users />
-                        </ProtectedRoute>
-                      } 
-                    />
-                    <Route 
-                      path="/workflow" 
-                      element={
-                        <ProtectedRoute requiredModule="dashboard">
-                          <Workflow />
-                        </ProtectedRoute>
-                      } 
-                    />
-                    <Route 
-                      path="/connection-test" 
-                      element={<ConnectionTest />} 
-                    />
-                    <Route 
-                      path="/database-test" 
-                      element={
-                        <ProtectedRoute requiredModule="testing">
-                          <DatabaseTest />
                         </ProtectedRoute>
                       } 
                     />

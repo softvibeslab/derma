@@ -6,7 +6,7 @@ interface UserProfile {
   id: string
   email: string
   full_name: string
-  role?: string
+  role: string
   role_id?: string
   sucursal: string | null
   is_active: boolean
@@ -44,8 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        console.log('Initializing auth...')
-        
         const { data: { session }, error } = await supabase.auth.getSession()
 
         if (error) {
@@ -56,8 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        console.log('Session:', session ? 'Found' : 'Not found')
-        
         if (mounted) {
           setUser(session?.user ?? null)
           if (session?.user) {
@@ -76,8 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event, session ? 'Session exists' : 'No session')
-      
       if (mounted) {
         setUser(session?.user ?? null)
         if (session?.user) {
@@ -97,9 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserProfile = async (userId: string) => {
     try {
-      console.log('Fetching user profile for:', userId)
-      
-      // Primero intentar obtener el perfil existente
+      // Intentar obtener el perfil existente
       let { data, error } = await supabase
         .from('users')
         .select('id, email, full_name, role_id, sucursal, is_active, created_at, updated_at')
@@ -107,63 +99,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (error && error.code === 'PGRST116') {
-        console.log('User profile not found, attempting to create...')
-        
-        // Si no existe, intentar crear el perfil
+        // Si no existe, crear un perfil básico
         const { data: authUser } = await supabase.auth.getUser()
         if (authUser.user) {
-          // Determinar rol por defecto basado en email
           let defaultRole = 'cajero'
           const email = authUser.user.email || ''
           
           if (email.includes('admin')) {
             defaultRole = 'administrador'
-          } else if (email.includes('cajero') || email.includes('cajera')) {
-            defaultRole = 'cajero'
-          } else if (email.includes('cosmetologa') || email.includes('cosmetologo')) {
+          } else if (email.includes('cosmetologa')) {
             defaultRole = 'cosmetologa'
           }
-          
-          // Get role_id first
-          const { data: roleData } = await supabase
-            .from('roles')
-            .select('id')
-            .eq('name', defaultRole)
-            .single()
-          
+
+          // Intentar crear el perfil
           const { data: newProfile, error: insertError } = await supabase
             .from('users')
             .insert([
               {
                 id: authUser.user.id,
                 email: authUser.user.email || '',
-                password_hash: 'managed_by_supabase_auth',
                 full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-                role_id: roleData?.id || null
+                password_hash: 'managed_by_supabase_auth'
               }
             ])
-            .select(`
-              id, email, full_name, role_id, sucursal, is_active, created_at, updated_at,
-              roles(name)
-            `)
+            .select('id, email, full_name, role_id, sucursal, is_active, created_at, updated_at')
             .single()
 
           if (!insertError && newProfile) {
-            console.log('New profile created:', newProfile)
-            // Transform the data to include role for compatibility
-            data = {
-              ...newProfile,
-              role: newProfile.roles?.name || defaultRole
-            }
+            data = { ...newProfile, role: defaultRole }
             error = null
           } else {
-            console.error('Error creating profile:', insertError)
-            // Como último recurso, crear un perfil temporal
+            // Si falla, crear un perfil temporal
             data = {
               id: authUser.user.id,
               email: authUser.user.email || '',
-              full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-              role: defaultRole, // Mantener para compatibilidad
+              full_name: authUser.user.user_metadata?.full_name || 'Usuario',
+              role: defaultRole,
               role_id: null,
               sucursal: null,
               is_active: true,
@@ -175,42 +146,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (error) {
-        console.error('Error fetching user profile:', error)
-        return
+      if (!error && data) {
+        // Asegurar que tenemos el campo role
+        if (!data.role) {
+          const email = data.email || ''
+          if (email.includes('admin')) {
+            data.role = 'administrador'
+          } else if (email.includes('cosmetologa')) {
+            data.role = 'cosmetologa'
+          } else {
+            data.role = 'cajero'
+          }
+        }
+        
+        setUserProfile(data as UserProfile)
       }
-      
-      console.log('User profile loaded:', data)
-      setUserProfile(data)
     } catch (error) {
       console.error('Error in fetchUserProfile:', error)
       
-      // Como último recurso, crear un perfil temporal para evitar errores
+      // Como último recurso, crear un perfil temporal básico
       const { data: authUser } = await supabase.auth.getUser()
       if (authUser.user) {
-        let defaultRole = 'cajero'
-        const email = authUser.user.email || ''
-        
-        if (email.includes('admin')) {
-          defaultRole = 'administrador'
-        } else if (email.includes('cajero') || email.includes('cajera')) {
-          defaultRole = 'cajero'
-        } else if (email.includes('cosmetologa') || email.includes('cosmetologo')) {
-          defaultRole = 'cosmetologa'
-        }
-        
         const tempProfile = {
           id: authUser.user.id,
           email: authUser.user.email || '',
-          full_name: authUser.user.user_metadata?.full_name || authUser.user.email || 'Usuario',
-          role: defaultRole,
+          full_name: authUser.user.user_metadata?.full_name || 'Usuario',
+          role: 'cajero',
           role_id: null,
           sucursal: null,
           is_active: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }
-        console.log('Using temporary profile:', tempProfile)
         setUserProfile(tempProfile)
       }
     }
@@ -224,34 +191,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      console.log('Attempting sign in for:', email)
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
       
-      if (error) {
-        console.error('Sign in error:', error)
-      } else {
-        console.log('Sign in successful')
-      }
-      
       return { error }
     } catch (error) {
-      console.error('Sign in exception:', error)
       return { error }
     }
   }
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
     try {
-      // Get role_id first
-      const { data: roleData } = await supabase
-        .from('roles')
-        .select('id')
-        .eq('name', role)
-        .single()
-      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -263,22 +215,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (!error && data.user) {
-        const { error: profileError } = await supabase
+        // Intentar crear el perfil
+        await supabase
           .from('users')
           .insert([
             {
               id: data.user.id,
               email,
-              password_hash: 'managed_by_supabase_auth',
               full_name: fullName,
-              role: role, // For compatibility
-              role_id: roleData?.id || null
+              password_hash: 'managed_by_supabase_auth'
             }
           ])
-
-        if (profileError) {
-          return { error: profileError }
-        }
       }
 
       return { error }

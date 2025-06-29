@@ -12,19 +12,14 @@ export function usePermissions() {
 
   useEffect(() => {
     if (userProfile) {
-      console.log('Setting permissions for user:', userProfile)
       setPermissions(getPermissionsForRole(userProfile.role))
       setLoading(false)
     } else {
-      console.log('No user profile, setting loading to false')
       setLoading(false)
     }
   }, [userProfile])
 
   const getPermissionsForRole = (role: string): RolePermissions => {
-    console.log('Getting permissions for role:', role)
-    
-    // Definir permisos estáticos por rol
     const rolePermissions: Record<string, RolePermissions> = {
       administrador: {
         dashboard: ['read', 'create', 'update', 'delete'],
@@ -35,7 +30,9 @@ export function usePermissions() {
         reports: ['read', 'create', 'update', 'delete'],
         import: ['read', 'create', 'update', 'delete'],
         roles: ['read', 'create', 'update', 'delete'],
-        users: ['read', 'create', 'update', 'delete']
+        users: ['read', 'create', 'update', 'delete'],
+        testing: ['read', 'create', 'update', 'delete'],
+        connection: ['read']
       },
       cajero: {
         dashboard: ['read'],
@@ -58,52 +55,26 @@ export function usePermissions() {
       }
     }
 
-    // Si el rol no existe, dar permisos básicos
-    const permissions = rolePermissions[role] || {
-      dashboard: ['read']
-    }
-    
-    console.log('Permissions for role', role, ':', permissions)
-    return permissions
+    return rolePermissions[role] || { dashboard: ['read'] }
   }
 
   const hasPermission = (module: string, action: string): boolean => {
-    if (!userProfile) {
-      console.log('No user profile, denying permission')
-      return false
-    }
-
-    if (loading) {
-      console.log('Still loading permissions, denying permission temporarily')
+    if (!userProfile || loading) {
       return false
     }
 
     // Admin siempre tiene todos los permisos
-    if (userProfile?.role === 'administrador') {
-      console.log('Admin user, granting permission for', module, action)
+    if (userProfile.role === 'administrador') {
       return true
     }
 
     // Verificar permisos específicos
     const modulePermissions = permissions[module]
-    const hasAccess = modulePermissions?.includes(action) || false
-    
-    console.log('Permission check:', {
-      user: userProfile.email,
-      role: userProfile.role,
-      module,
-      action,
-      modulePermissions,
-      hasAccess
-    })
-    
-    return hasAccess
+    return modulePermissions?.includes(action) || false
   }
 
   const canAccessModule = (module: string): boolean => {
-    const canAccess = hasPermission(module, 'read')
-    console.log('Module access check for', module, ':', canAccess)
-    return canAccess
+    return hasPermission(module, 'read')
   }
 
   const getAccessibleModules = (): string[] => {
@@ -117,13 +88,11 @@ export function usePermissions() {
       'import',
       'roles',
       'users',
-      'connection',
-      'testing'
+      'testing',
+      'connection'
     ]
 
-    const accessible = allModules.filter(module => canAccessModule(module))
-    console.log('Accessible modules:', accessible)
-    return accessible
+    return allModules.filter(module => canAccessModule(module))
   }
 
   const canCreate = (module: string): boolean => {
@@ -139,7 +108,7 @@ export function usePermissions() {
   }
 
   const isAdmin = (): boolean => {
-    return userProfile?.role === 'administrador' || false
+    return userProfile?.role === 'administrador'
   }
 
   const getModulePermissions = (module: string): string[] => {

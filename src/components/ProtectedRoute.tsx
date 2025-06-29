@@ -35,7 +35,7 @@ export default function ProtectedRoute({
     return <Navigate to="/login" replace />
   }
 
-  // Si no hay perfil de usuario después de cargar, mostrar error
+  // Si no hay perfil de usuario, mostrar error simplificado
   if (!userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -43,27 +43,16 @@ export default function ProtectedRoute({
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-8 h-8 text-red-600" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Error de Perfil</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Error de Usuario</h2>
           <p className="text-gray-600 mb-4">
-            No se pudo cargar tu perfil de usuario. Esto puede deberse a un problema de configuración.
+            No se pudo cargar tu perfil. Por favor intenta recargar la página.
           </p>
-          <div className="space-y-2">
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
-            >
-              Reintentar
-            </button>
-            <button
-              onClick={() => {
-                localStorage.clear()
-                window.location.href = '/login'
-              }}
-              className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Cerrar Sesión
-            </button>
-          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
+          >
+            Recargar Página
+          </button>
         </div>
       </div>
     )
@@ -82,26 +71,12 @@ export default function ProtectedRoute({
             No tienes permisos para acceder a esta página.
           </p>
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2" />
-              <div className="text-left">
-                <p className="text-sm font-medium text-yellow-800">
-                  Información de acceso:
-                </p>
-                <p className="text-sm text-yellow-700">
-                  Rol actual: <span className="font-mono capitalize">{userProfile.role}</span>
-                </p>
-                <p className="text-sm text-yellow-700">
-                  Módulo requerido: <span className="font-mono">{requiredModule}</span>
-                </p>
-                <p className="text-sm text-yellow-700">
-                  Acción requerida: <span className="font-mono">{requiredAction}</span>
-                </p>
-              </div>
-            </div>
+            <p className="text-sm text-yellow-800">
+              Tu rol actual es: <span className="font-mono capitalize">{userProfile.role}</span>
+            </p>
           </div>
           <p className="text-sm text-gray-500">
-            Contacta al administrador si necesitas acceso a este módulo.
+            Contacta al administrador si necesitas acceso.
           </p>
         </div>
       </div>

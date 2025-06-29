@@ -8,22 +8,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.')
 }
 
-// Solo mostrar en desarrollo
-if (import.meta.env.DEV) {
-  console.log('Supabase URL:', supabaseUrl)
-  console.log('Supabase Key:', supabaseAnonKey ? 'Present' : 'Missing')
-}
-
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false
-  },
-  global: {
-    headers: {
-      'X-Client-Info': 'dermacielo-management-system'
-    }
   }
 })
 
@@ -53,8 +42,8 @@ export type Database = {
         Row: {
           id: string
           email: string
-          password_hash: string
           full_name: string
+          role?: string
           role_id: string | null
           sucursal: string | null
           is_active: boolean
@@ -64,16 +53,16 @@ export type Database = {
         Insert: {
           id?: string
           email: string
-          password_hash: string
           full_name: string
+          role?: string
           role_id?: string | null
           sucursal?: string | null
           is_active?: boolean
         }
         Update: {
           email?: string
-          password_hash?: string
           full_name?: string
+          role?: string
           role_id?: string | null
           sucursal?: string | null
           is_active?: boolean
@@ -92,8 +81,6 @@ export type Database = {
           precio_total: number | null
           metodo_pago_preferido: string | null
           observaciones: string | null
-          consentimiento_firmado: boolean
-          fecha_consentimiento: string | null
           is_active: boolean
           created_at: string
           updated_at: string
@@ -122,8 +109,6 @@ export type Database = {
           precio_total?: number | null
           metodo_pago_preferido?: string | null
           observaciones?: string | null
-          consentimiento_firmado?: boolean
-          fecha_consentimiento?: string | null
           is_active?: boolean
         }
       }
@@ -200,6 +185,8 @@ export type Database = {
           duracion_minutos?: number | null
           numero_sesion?: number | null
           status?: string
+          observaciones_caja?: string | null
+          observaciones_operadora?: string | null
           is_paid?: boolean
         }
       }
@@ -208,10 +195,10 @@ export type Database = {
           id: string
           patient_id: string
           appointment_id: string | null
-          cajera_id: string | null
           monto: number
           metodo_pago: string
           fecha_pago: string
+          cajera_id: string | null
           banco: string | null
           referencia: string | null
           observaciones: string | null
@@ -221,10 +208,10 @@ export type Database = {
         Insert: {
           patient_id: string
           appointment_id?: string | null
-          cajera_id?: string | null
           monto: number
           metodo_pago: string
           fecha_pago?: string
+          cajera_id?: string | null
           banco?: string | null
           referencia?: string | null
           observaciones?: string | null
@@ -233,10 +220,10 @@ export type Database = {
         Update: {
           patient_id?: string
           appointment_id?: string | null
-          cajera_id?: string | null
           monto?: number
           metodo_pago?: string
           fecha_pago?: string
+          cajera_id?: string | null
           banco?: string | null
           referencia?: string | null
           observaciones?: string | null
@@ -263,8 +250,6 @@ export type Database = {
           sesiones_completadas?: number
           precio_total?: number | null
           fecha_inicio?: string | null
-          fecha_fin?: string | null
-          status?: string
           observaciones?: string | null
         }
         Update: {
@@ -274,8 +259,6 @@ export type Database = {
           sesiones_completadas?: number
           precio_total?: number | null
           fecha_inicio?: string | null
-          fecha_fin?: string | null
-          status?: string
           observaciones?: string | null
         }
       }
@@ -365,44 +348,6 @@ export type Database = {
           condiciones?: string | null
           is_active?: boolean
         }
-      }
-    }
-    Views: {
-      user_profiles: {
-        Row: {
-          id: string
-          email: string
-          full_name: string
-          role: string
-          role_id: string | null
-          sucursal: string | null
-          is_active: boolean
-          created_at: string
-          updated_at: string
-          role_name: string | null
-          role_description: string | null
-          role_permissions: any | null
-        }
-      }
-    }
-    Functions: {
-      has_permission: {
-        Args: {
-          user_id: string
-          module_name: string
-          action_name: string
-        }
-        Returns: boolean
-      }
-      get_user_role: {
-        Args: {}
-        Returns: string
-      }
-      get_user_permissions: {
-        Args: {
-          user_id: string
-        }
-        Returns: any
       }
     }
   }
