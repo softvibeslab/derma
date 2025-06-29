@@ -62,7 +62,8 @@ export default function Workflow() {
     cumpleanos: '',
     localidad: '',
     zonas_tratamiento: [] as string[],
-    observaciones: ''
+    observaciones: '',
+    sexo: ''
   })
 
   // Estados para cita
@@ -79,6 +80,9 @@ export default function Workflow() {
     descuento: '',
     observaciones: ''
   })
+
+  // Estado para mostrar progreso
+  const [processingStep, setProcessingStep] = useState('')
 
   const [workflowResults, setWorkflowResults] = useState({
     patientId: '',
@@ -170,17 +174,37 @@ export default function Workflow() {
   )
 
   const handleCreatePatient = async () => {
+    setProcessingStep('Validando datos del paciente...')
+    
     if (!newPatient.nombre_completo.trim()) {
       alert('El nombre del paciente es requerido')
+      setProcessingStep('')
       return
     }
 
     // Validaciones adicionales
     if (newPatient.telefono && newPatient.telefono.trim() && !/^\d{10}$/.test(newPatient.telefono.replace(/\D/g, ''))) {
       alert('El teléfono debe tener 10 dígitos')
+      setProcessingStep('')
       return
     }
+    
+    // Validación de fecha de nacimiento
+    if (newPatient.cumpleanos) {
+      const birthDate = new Date(newPatient.cumpleanos)
+      const today = new Date()
+      const age = today.getFullYear() - birthDate.getFullYear()
+      
+      if (age < 0 || age > 120) {
+        alert('Fecha de nacimiento inválida')
+        setProcessingStep('')
+        return
+      }
+    }
+
     setLoading(true)
+    setProcessingStep('Creando paciente en la base de datos...')
+    
     try {
       const { data, error } = await supabase
         .from('patients')
@@ -188,10 +212,10 @@ export default function Workflow() {
           nombre_completo: newPatient.nombre_completo.trim(),
           telefono: newPatient.telefono?.trim() || null,
           cumpleanos: newPatient.cumpleanos || null,
+          sexo: newPatient.sexo || null,
           localidad: newPatient.localidad?.trim() || null,
           zonas_tratamiento: newPatient.zonas_tratamiento.length > 0 ? newPatient.zonas_tratamiento : null,
-          observaciones: newPatient.observaciones?.trim() || null,
-          consentimiento_firmado: true
+          observaciones: newPatient.observaciones?.trim() || null
         }])
         .select()
         .single()
@@ -201,13 +225,20 @@ export default function Workflow() {
       setSelectedPatient(data)
       setWorkflowResults(prev => ({ ...prev, patientId: data.id }))
       setNewPatientMode(false)
-      setCurrentStep(2)
+      setProcessingStep('¡Paciente creado exitosamente!')
+      
+      // Pequeña pausa para mostrar el mensaje de éxito
+      setTimeout(() => {
+        setProcessingStep('')
+        setCurrentStep(2)
+      }, 1000)
+      
       await fetchPatients()
       
-      alert('Paciente creado exitosamente')
     } catch (error) {
       console.error('Error creating patient:', error)
       alert('Error al crear el paciente')
+      setProcessingStep('')
     } finally {
       setLoading(false)
     }
@@ -225,17 +256,24 @@ export default function Workflow() {
   }
 
   const handleCreateAppointment = async () => {
+    setProcessingStep('Validando datos de la cita...')
+    
     if (!selectedPatient || !selectedService || !appointmentData.fecha_hora) {
       alert('Faltan datos para crear la cita')
+      setProcessingStep('')
       return
     }
 
     // Validar que la fecha no sea en el pasado
     if (new Date(appointmentData.fecha_hora) < new Date()) {
       alert('La fecha y hora no puede ser en el pasado')
+      setProcessingStep('')
       return
     }
+    
     setLoading(true)
+    setProcessingStep('Agendando cita en el sistema...')
+    
     try {
       const { data, error } = await supabase
         .from('appointments')
@@ -256,21 +294,30 @@ export default function Workflow() {
 
       if (error) throw error
 
+      setProcessingStep('¡Cita agendada exitosamente!')
       setWorkflowResults(prev => ({ ...prev, appointmentId: data.id }))
-      setCurrentStep(4)
       
-      alert('Cita agendada exitosamente')
+      // Pequeña pausa para mostrar el mensaje de éxito
+      setTimeout(() => {
+        setProcessingStep('')
+        setCurrentStep(4)
+      }, 1000)
+      
     } catch (error) {
       console.error('Error creating appointment:', error)
       alert('Error al agendar la cita')
+      setProcessingStep('')
     } finally {
       setLoading(false)
     }
   }
 
   const handleProcessPayment = async () => {
+    setProcessingStep('Validando datos del pago...')
+    
     if (!selectedPatient || !selectedService || !workflowResults.appointmentId) {
       alert('Faltan datos para procesar el pago')
+      setProcessingStep('')
       return
     }
 
@@ -279,6 +326,7 @@ export default function Workflow() {
     
     if (montoTotal <= 0) {
       alert('El monto total debe ser mayor a 0')
+      setProcessingStep('')
       return
     }
 
@@ -286,6 +334,7 @@ export default function Workflow() {
       const recibido = parseFloat(paymentData.monto_recibido)
       if (recibido < montoTotal) {
         alert('El monto recibido debe ser mayor o igual al total')
+        setProcessingStep('')
         return
       }
     }
@@ -293,11 +342,16 @@ export default function Workflow() {
     // Validación de método de pago
     if (!paymentData.metodo_pago) {
       alert('Debe seleccionar un método de pago')
+      setProcessingStep('')
       return
     }
+    
     setLoading(true)
+    setProcessingStep('Procesando pago...')
+    
     try {
       // Crear pago
+      setProcessingStep('Registrando pago en el sistema...')
       const { data: payment, error: paymentError } = await supabase
         .from('payments')
         .insert([{
@@ -318,6 +372,7 @@ export default function Workflow() {
       if (paymentError) throw paymentError
 
       // Actualizar cita como completada
+      setProcessingStep('Actualizando estado de la cita...')
       await supabase
         .from('appointments')
         .update({ 
@@ -326,13 +381,19 @@ export default function Workflow() {
         })
         .eq('id', workflowResults.appointmentId)
 
+      setProcessingStep('¡Pago procesado exitosamente!')
       setWorkflowResults(prev => ({ ...prev, paymentId: payment.id }))
-      setCurrentStep(5)
       
-      alert('Pago procesado exitosamente')
+      // Pequeña pausa para mostrar el mensaje de éxito
+      setTimeout(() => {
+        setProcessingStep('')
+        setCurrentStep(5)
+      }, 1500)
+      
     } catch (error) {
       console.error('Error processing payment:', error)
       alert('Error al procesar el pago')
+      setProcessingStep('')
     } finally {
       setLoading(false)
     }
@@ -348,6 +409,7 @@ export default function Workflow() {
       nombre_completo: '',
       telefono: '',
       cumpleanos: '',
+      sexo: '',
       localidad: '',
       zonas_tratamiento: [],
       observaciones: ''
@@ -376,6 +438,29 @@ export default function Workflow() {
     const total = calculateTotal()
     const recibido = parseFloat(paymentData.monto_recibido)
     return Math.max(0, recibido - total)
+  }
+
+  const generateTestPatient = () => {
+    const names = [
+      'María García López', 'Ana Rodríguez Pérez', 'Sofia Hernández Torres',
+      'Isabella Castro Morales', 'Valeria Martín González', 'Camila Torres Ruiz'
+    ]
+    const phones = ['9841234567', '9847654321', '9843216789', '9849876543']
+    const locations = ['Playa del Carmen', 'Cancún', 'Tulum', 'Cozumel']
+    
+    const randomName = names[Math.floor(Math.random() * names.length)]
+    const randomPhone = phones[Math.floor(Math.random() * phones.length)]
+    const randomLocation = locations[Math.floor(Math.random() * locations.length)]
+    
+    setNewPatient({
+      nombre_completo: randomName,
+      telefono: randomPhone,
+      cumpleanos: '1990-05-15',
+      sexo: 'F',
+      localidad: randomLocation,
+      zonas_tratamiento: ['axilas', 'piernas'],
+      observaciones: 'Paciente de prueba generado automáticamente'
+    })
   }
 
   return (
@@ -420,6 +505,16 @@ export default function Workflow() {
           ))}
         </div>
       </div>
+
+      {/* Processing Status */}
+      {processingStep && (
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+            <span className="text-blue-800 font-medium">{processingStep}</span>
+          </div>
+        </div>
+      )}
 
       {/* Step Content */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -484,6 +579,16 @@ export default function Workflow() {
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-md font-medium text-gray-900">Datos del Nuevo Paciente</h4>
+                  <button
+                    onClick={generateTestPatient}
+                    className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  >
+                    Datos de Prueba
+                  </button>
+                </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -508,6 +613,21 @@ export default function Workflow() {
                       onChange={(e) => setNewPatient(prev => ({ ...prev, telefono: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                     />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Sexo
+                    </label>
+                    <select
+                      value={newPatient.sexo}
+                      onChange={(e) => setNewPatient(prev => ({ ...prev, sexo: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                    >
+                      <option value="">Seleccionar</option>
+                      <option value="F">Femenino</option>
+                      <option value="M">Masculino</option>
+                    </select>
                   </div>
                 </div>
 
@@ -539,6 +659,39 @@ export default function Workflow() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Zonas de Tratamiento (Opcional)
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['axilas', 'piernas', 'brazos', 'bikini_brasileno', 'bikini_full', 'ingles', 'labio_superior', 'menton'].map((zona) => (
+                      <label key={zona} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={newPatient.zonas_tratamiento.includes(zona)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewPatient(prev => ({
+                                ...prev,
+                                zonas_tratamiento: [...prev.zonas_tratamiento, zona]
+                              }))
+                            } else {
+                              setNewPatient(prev => ({
+                                ...prev,
+                                zonas_tratamiento: prev.zonas_tratamiento.filter(z => z !== zona)
+                              }))
+                            }
+                          }}
+                          className="rounded border-gray-300 text-pink-600 focus:ring-pink-500 mr-2"
+                        />
+                        <span className="text-sm text-gray-700 capitalize">
+                          {zona.replace('_', ' ')}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Observaciones
                   </label>
                   <textarea
@@ -552,10 +705,10 @@ export default function Workflow() {
 
                 <button
                   onClick={handleCreatePatient}
-                  disabled={loading}
-                  className="w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50"
+                  disabled={loading || !newPatient.nombre_completo.trim()}
+                  className="w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 transition-colors"
                 >
-                  {loading ? 'Creando...' : 'Crear Paciente y Continuar'}
+                  {loading ? 'Creando Paciente...' : 'Crear Paciente y Continuar'}
                 </button>
               </div>
             )}
@@ -671,10 +824,10 @@ export default function Workflow() {
 
               <button
                 onClick={handleCreateAppointment}
-                disabled={loading || !appointmentData.fecha_hora}
-                className="w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50"
+                disabled={loading || !appointmentData.fecha_hora || !selectedService}
+                className="w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 transition-colors"
               >
-                {loading ? 'Agendando...' : 'Agendar Cita y Continuar'}
+                {loading ? 'Agendando Cita...' : 'Agendar Cita y Continuar'}
               </button>
             </div>
           </div>
@@ -792,10 +945,10 @@ export default function Workflow() {
 
               <button
                 onClick={handleProcessPayment}
-                disabled={loading}
-                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                disabled={loading || calculateTotal() <= 0}
+                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
               >
-                {loading ? 'Procesando...' : `Procesar Pago ($${calculateTotal().toLocaleString()})`}
+                {loading ? 'Procesando Pago...' : `Procesar Pago ($${calculateTotal().toLocaleString()})`}
               </button>
             </div>
           </div>

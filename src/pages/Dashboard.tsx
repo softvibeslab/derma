@@ -282,15 +282,18 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <button 
             onClick={() => window.location.href = '/workflow'}
-            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors hover:scale-105 transform"
           >
-            <Calendar className="w-6 h-6 mb-2" />
+            <div className="flex items-center mb-2">
+              <Calendar className="w-6 h-6 mr-2" />
+              <span className="px-2 py-1 bg-white bg-opacity-30 rounded-full text-xs font-bold">360°</span>
+            </div>
             <p className="font-medium">Flujo Completo</p>
-            <p className="text-sm opacity-90">Proceso 360° paciente → pago</p>
+            <p className="text-sm opacity-90">Paciente → Servicio → Cita → Pago</p>
           </button>
           <button 
             onClick={() => window.location.href = '/patients'}
-            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors hover:scale-105 transform"
           >
             <Users className="w-6 h-6 mb-2" />
             <p className="font-medium">Nuevo Paciente</p>
@@ -298,7 +301,7 @@ export default function Dashboard() {
           </button>
           <button 
             onClick={() => window.location.href = '/appointments'}
-            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors"
+            className="bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg p-4 text-left transition-colors hover:scale-105 transform"
           >
             <Clock className="w-6 h-6 mb-2" />
             <p className="font-medium">Agendar Cita</p>
