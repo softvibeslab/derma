@@ -178,6 +178,12 @@ export default function Appointments() {
       alert('Debe seleccionar fecha y hora')
       return
     }
+
+    // Validar que la fecha no sea en el pasado
+    if (new Date(formData.fecha_hora) < new Date()) {
+      alert('La fecha y hora no puede ser en el pasado')
+      return
+    }
     
     setLoading(true)
 
@@ -185,7 +191,9 @@ export default function Appointments() {
       const appointmentData = {
         ...formData,
         precio_sesion: formData.precio_sesion ? parseFloat(formData.precio_sesion) : null,
-        operadora_id: formData.operadora_id || null
+        operadora_id: formData.operadora_id || null,
+        cajera_id: userProfile?.id || null,
+        metodo_pago: formData.metodo_pago || null
       }
 
       if (isEditing && selectedAppointment) {
@@ -224,7 +232,8 @@ export default function Appointments() {
       numero_sesion: 1,
       status: 'agendada',
       precio_sesion: '',
-      observaciones_caja: ''
+      observaciones_caja: '',
+      metodo_pago: ''
     })
     setSelectedAppointment(null)
     setIsEditing(false)
@@ -243,8 +252,7 @@ export default function Appointments() {
         status: appointment.status,
         precio_sesion: appointment.precio_sesion?.toString() || '',
         observaciones_caja: appointment.observaciones_caja || '',
-        observaciones_caja: '',
-        metodo_pago: ''
+        metodo_pago: appointment.metodo_pago || ''
       })
     } else {
       resetForm()

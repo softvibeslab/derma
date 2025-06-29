@@ -159,13 +159,39 @@ export default function Patients() {
       return
     }
 
+    // Validación de teléfono si está presente
+    if (formData.telefono && formData.telefono.trim() && !/^\d{10}$/.test(formData.telefono.replace(/\D/g, ''))) {
+      alert('El teléfono debe tener 10 dígitos')
+      setLoading(false)
+      return
+    }
+
+    // Validación de fecha de nacimiento
+    if (formData.cumpleanos) {
+      const birthDate = new Date(formData.cumpleanos)
+      const today = new Date()
+      const age = today.getFullYear() - birthDate.getFullYear()
+      
+      if (age < 0 || age > 120) {
+        alert('Fecha de nacimiento inválida')
+        setLoading(false)
+        return
+      }
+    }
+
     try {
       const patientData = {
-        ...formData,
-        precio_total: formData.precio_total ? parseFloat(formData.precio_total) : null,
+        nombre_completo: formData.nombre_completo.trim(),
+        telefono: formData.telefono?.trim() || null,
         cumpleanos: formData.cumpleanos || null,
+        sexo: formData.sexo || null,
+        localidad: formData.localidad?.trim() || null,
+        zonas_tratamiento: formData.zonas_tratamiento.length > 0 ? formData.zonas_tratamiento : null,
+        precio_total: formData.precio_total ? parseFloat(formData.precio_total) : null,
+        metodo_pago_preferido: formData.metodo_pago_preferido || null,
+        observaciones: formData.observaciones?.trim() || null,
+        consentimiento_firmado: formData.consentimiento_firmado,
         fecha_consentimiento: formData.consentimiento_firmado ? new Date().toISOString().split('T')[0] : null,
-        numero_cliente: null // Se puede generar automáticamente si es necesario
       }
 
       if (isEditing && selectedPatient) {

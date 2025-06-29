@@ -175,13 +175,22 @@ export default function Workflow() {
       return
     }
 
+    // Validaciones adicionales
+    if (newPatient.telefono && newPatient.telefono.trim() && !/^\d{10}$/.test(newPatient.telefono.replace(/\D/g, ''))) {
+      alert('El teléfono debe tener 10 dígitos')
+      return
+    }
     setLoading(true)
     try {
       const { data, error } = await supabase
         .from('patients')
         .insert([{
-          ...newPatient,
+          nombre_completo: newPatient.nombre_completo.trim(),
+          telefono: newPatient.telefono?.trim() || null,
           cumpleanos: newPatient.cumpleanos || null,
+          localidad: newPatient.localidad?.trim() || null,
+          zonas_tratamiento: newPatient.zonas_tratamiento.length > 0 ? newPatient.zonas_tratamiento : null,
+          observaciones: newPatient.observaciones?.trim() || null,
           consentimiento_firmado: true
         }])
         .select()
@@ -221,6 +230,11 @@ export default function Workflow() {
       return
     }
 
+    // Validar que la fecha no sea en el pasado
+    if (new Date(appointmentData.fecha_hora) < new Date()) {
+      alert('La fecha y hora no puede ser en el pasado')
+      return
+    }
     setLoading(true)
     try {
       const { data, error } = await supabase
@@ -234,7 +248,7 @@ export default function Workflow() {
           numero_sesion: appointmentData.numero_sesion,
           status: 'agendada',
           precio_sesion: selectedService.precio_base,
-          observaciones_caja: appointmentData.observaciones_caja
+          observaciones_caja: appointmentData.observaciones_caja?.trim() || null
         }])
         .select()
         .single()
@@ -262,6 +276,11 @@ export default function Workflow() {
     const descuento = parseFloat(paymentData.descuento) || 0
     const montoTotal = Math.max(0, selectedService.precio_base - descuento)
     
+    if (montoTotal <= 0) {
+      alert('El monto total debe ser mayor a 0')
+      return
+    }
+
     if (paymentData.metodo_pago === 'efectivo' && paymentData.monto_recibido) {
       const recibido = parseFloat(paymentData.monto_recibido)
       if (recibido < montoTotal) {
@@ -270,6 +289,11 @@ export default function Workflow() {
       }
     }
 
+    // Validación de método de pago
+    if (!paymentData.metodo_pago) {
+      alert('Debe seleccionar un método de pago')
+      return
+    }
     setLoading(true)
     try {
       // Crear pago
@@ -281,9 +305,11 @@ export default function Workflow() {
           monto: montoTotal,
           metodo_pago: paymentData.metodo_pago,
           cajera_id: userProfile?.id,
-          observaciones: paymentData.observaciones,
+          observaciones: paymentData.observaciones?.trim() || null,
           tipo_pago: 'pago_sesion',
-          referencia: paymentData.metodo_pago !== 'efectivo' ? `REF-${Date.now()}` : null
+          referencia: paymentData.metodo_pago !== 'efectivo' ? `REF-${Date.now()}` : null,
+          banco: paymentData.metodo_pago === 'bbva' ? 'BBVA' : 
+                 paymentData.metodo_pago === 'clip' ? 'Clip' : null
         }])
         .select()
         .single()

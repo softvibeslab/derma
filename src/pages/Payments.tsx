@@ -273,9 +273,21 @@ export default function Payments() {
       }
     }
 
+    // Validación de método de pago
+    if (!paymentMethod) {
+      alert('Debe seleccionar un método de pago')
+      return
+    }
+
+    // Validación para métodos que requieren referencia
+    if (['transferencia', 'bbva', 'clip'].includes(paymentMethod)) {
+      // Generar referencia automática si no existe
+      if (!amountPaid) {
+        setAmountPaid(total.toString())
+      }
+    }
     try {
       setLoading(true)
-      const total = calculateTotal()
       const ticketNumber = `TKT-${Date.now()}`
 
       // Group cart items by patient

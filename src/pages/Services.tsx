@@ -117,16 +117,29 @@ export default function Services() {
       alert('El precio base debe ser mayor a 0')
       return
     }
+
+    // Validaciones adicionales
+    if (formData.duracion_minutos && parseInt(formData.duracion_minutos) <= 0) {
+      alert('La duración debe ser mayor a 0 minutos')
+      return
+    }
+
+    if (formData.sesiones_recomendadas && parseInt(formData.sesiones_recomendadas) <= 0) {
+      alert('Las sesiones recomendadas deben ser mayor a 0')
+      return
+    }
     
     setLoading(true)
 
     try {
       const serviceData = {
-        ...formData,
+        nombre: formData.nombre.trim(),
+        descripcion: formData.descripcion?.trim() || null,
+        zona: formData.zona,
         precio_base: parseFloat(formData.precio_base),
         duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
         sesiones_recomendadas: formData.sesiones_recomendadas ? parseInt(formData.sesiones_recomendadas) : null,
-        descripcion: formData.descripcion || null
+        tecnologia: formData.tecnologia?.trim() || 'Sopranoice'
       }
 
       if (isEditing && selectedService) {
