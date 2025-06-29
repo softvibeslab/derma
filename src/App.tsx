@@ -13,6 +13,7 @@ import Reports from './pages/Reports'
 import Import from './pages/Import'
 import Roles from './pages/Roles'
 import Users from './pages/Users'
+import ConnectionTest from './pages/ConnectionTest'
 
 function App() {
   return (
@@ -97,6 +98,10 @@ function App() {
                           <Users />
                         </ProtectedRoute>
                       } 
+                    />
+                    <Route 
+                      path="/connection-test" 
+                      element={<ConnectionTest />} 
                     />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
