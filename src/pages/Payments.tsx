@@ -271,6 +271,45 @@ export default function Payments() {
     return Math.max(0, paid - total)
   }
 
+  // Function to get a valid cashier ID
+  const getValidCashierId = async (): Promise<string | null> => {
+    try {
+      // First, try to use the current user's ID if they exist in the users table
+      if (userProfile?.id) {
+        const { data: currentUser, error } = await supabase
+          .from('users')
+          .select('id')
+          .eq('id', userProfile.id)
+          .eq('is_active', true)
+          .single()
+
+        if (!error && currentUser) {
+          console.log('Using current user as cashier:', userProfile.id)
+          return userProfile.id
+        }
+      }
+
+      // If current user doesn't exist, try to find any active user
+      const { data: anyUser, error: anyUserError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('is_active', true)
+        .limit(1)
+        .single()
+
+      if (!anyUserError && anyUser) {
+        console.log('Using fallback user as cashier:', anyUser.id)
+        return anyUser.id
+      }
+
+      console.warn('No valid cashier ID found')
+      return null
+    } catch (error) {
+      console.error('Error getting valid cashier ID:', error)
+      return null
+    }
+  }
+
   const processPayment = async () => {
     if (cart.length === 0) {
       setError('El carrito está vacío')
@@ -298,6 +337,9 @@ export default function Payments() {
       setError('')
       console.log('Processing payment for cart:', cart)
       
+      // Get a valid cashier ID
+      const validCashierId = await getValidCashierId()
+      
       const ticketNumber = `TKT-${Date.now()}`
 
       // Group cart items by patient
@@ -321,7 +363,7 @@ export default function Payments() {
           appointment_id: null, // Para el pago principal del grupo
           monto: patientTotal,
           metodo_pago: paymentMethod,
-          cajera_id: userProfile?.id || null,
+          cajera_id: validCashierId, // Use the valid cashier ID or null
           observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)`,
           tipo_pago: 'pago_sesion',
           banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
@@ -363,7 +405,7 @@ export default function Payments() {
             appointment_id: item.appointment_id,
             monto: item.amount,
             metodo_pago: paymentMethod,
-            cajera_id: userProfile?.id || null,
+            cajera_id: validCashierId, // Use the valid cashier ID or null
             observaciones: `${item.service_name} - Sesión ${item.session_number}`,
             tipo_pago: 'pago_sesion',
             banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
@@ -414,7 +456,7 @@ export default function Payments() {
       
       Ticket: ${ticketNumber}
       Fecha: ${format(new Date(), 'dd/MM/yyyy HH:mm')}
-      Cajero: ${userProfile?.full_name}
+      Cajero: ${userProfile?.full_name || 'Sistema'}
       
       Cliente: ${items[0]?.patient_name}
       
