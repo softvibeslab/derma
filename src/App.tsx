@@ -14,6 +14,7 @@ import Import from './pages/Import'
 import Roles from './pages/Roles'
 import Users from './pages/Users'
 import Workflow from './pages/Workflow'
+import TestDashboard from './pages/TestDashboard'
 
 function App() {
   return (
@@ -104,6 +105,14 @@ function App() {
                       element={
                         <ProtectedRoute requiredModule="users">
                           <Users />
+                        </ProtectedRoute>
+                      } 
+                    />
+                    <Route 
+                      path="/test" 
+                      element={
+                        <ProtectedRoute requiredModule="dashboard">
+                          <TestDashboard />
                         </ProtectedRoute>
                       } 
                     />
