@@ -15,11 +15,10 @@ export default function ProtectedRoute({
   requiredModule,
   requiredAction = 'read'
 }: ProtectedRouteProps) {
-  const { user, userProfile, loading: authLoading } = useAuth()
-  const { hasPermission, loading: permissionsLoading } = usePermissions()
+  const { user, userProfile, loading } = useAuth()
+  const { hasPermission } = usePermissions()
 
-  // Simplificar la lógica de loading
-  if (authLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -34,7 +33,6 @@ export default function ProtectedRoute({
     return <Navigate to="/login" replace />
   }
 
-  // Si no hay perfil, mostrar error simple
   if (!userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -57,7 +55,6 @@ export default function ProtectedRoute({
     )
   }
 
-  // Verificar permisos si se requieren
   if (requiredModule && !hasPermission(requiredModule, requiredAction)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

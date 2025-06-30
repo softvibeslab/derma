@@ -15,8 +15,6 @@ import {
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { validateAppointmentData, sanitizeAppointmentData, getValidUserId } from '../utils/databaseValidation'
-import { useAuth } from '../contexts/AuthContext'
 
 interface Appointment {
   id: string
@@ -59,7 +57,6 @@ const STATUS_ICONS = {
 }
 
 export default function Appointments() {
-  const { userProfile } = useAuth()
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [patients, setPatients] = useState<any[]>([])
   const [services, setServices] = useState<any[]>([])
@@ -77,9 +74,7 @@ export default function Appointments() {
     fecha_hora: '',
     numero_sesion: 1,
     status: 'agendada',
-    observaciones_caja: '',
-    observaciones_operadora: '',
-    duracion_minutos: ''
+    observaciones_caja: ''
   })
 
   useEffect(() => {
@@ -162,7 +157,7 @@ export default function Appointments() {
 
       if (error) throw error
       
-      await fetchData()
+      await fetchData() // Refrescar datos después de cancelar
       alert('Cita cancelada exitosamente')
     } catch (error) {
       console.error('Error canceling appointment:', error)
@@ -175,37 +170,35 @@ export default function Appointments() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validar datos del formulario
-    const validation = await validateAppointmentData(formData)
-    
-    if (!validation.isValid) {
-      alert(`Errores en el formulario:\n${validation.errors.join('\n')}`)
+    // Validaciones básicas
+    if (!formData.patient_id) {
+      alert('Debe seleccionar un paciente')
       return
     }
-
-    if (validation.warnings.length > 0) {
-      const proceed = confirm(`Advertencias:\n${validation.warnings.join('\n')}\n\n¿Desea continuar?`)
-      if (!proceed) return
+    
+    if (!formData.service_id) {
+      alert('Debe seleccionar un servicio')
+      return
+    }
+    
+    if (!formData.fecha_hora) {
+      alert('Debe seleccionar fecha y hora')
+      return
     }
     
     setLoading(true)
 
     try {
-      const validCajeraId = await getValidUserId(userProfile?.id)
-      
-      const appointmentData = await sanitizeAppointmentData({
+      const appointmentData = {
         patient_id: formData.patient_id,
         service_id: formData.service_id,
         operadora_id: formData.operadora_id || null,
-        cajera_id: validCajeraId,
         fecha_hora: formData.fecha_hora,
-        duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
         numero_sesion: formData.numero_sesion,
         status: formData.status,
         observaciones_caja: formData.observaciones_caja?.trim() || null,
-        observaciones_operadora: formData.observaciones_operadora?.trim() || null,
         is_paid: false
-      })
+      }
 
       if (isEditing && selectedAppointment) {
         const { error } = await supabase
@@ -222,7 +215,9 @@ export default function Appointments() {
         if (error) throw error
       }
 
+      // CRUCIAL: Refrescar los datos después de crear/actualizar
       await fetchData()
+      
       setShowModal(false)
       resetForm()
       alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
@@ -242,9 +237,7 @@ export default function Appointments() {
       fecha_hora: '',
       numero_sesion: 1,
       status: 'agendada',
-      observaciones_caja: '',
-      observaciones_operadora: '',
-      duracion_minutos: ''
+      observaciones_caja: ''
     })
     setSelectedAppointment(null)
     setIsEditing(false)
@@ -261,9 +254,7 @@ export default function Appointments() {
         fecha_hora: appointment.fecha_hora.slice(0, 16),
         numero_sesion: appointment.numero_sesion || 1,
         status: appointment.status,
-        observaciones_caja: appointment.observaciones_caja || '',
-        observaciones_operadora: appointment.observaciones_operadora || '',
-        duracion_minutos: appointment.services?.duracion_minutos?.toString() || ''
+        observaciones_caja: appointment.observaciones_caja || ''
       })
     } else {
       resetForm()
@@ -466,14 +457,7 @@ export default function Appointments() {
                       <select
                         required
                         value={formData.service_id}
-                        onChange={(e) => {
-                          const service = services.find(s => s.id === e.target.value)
-                          setFormData(prev => ({ 
-                            ...prev, 
-                            service_id: e.target.value,
-                            duracion_minutos: service?.duracion_minutos?.toString() || ''
-                          }))
-                        }}
+                        onChange={(e) => setFormData(prev => ({ ...prev, service_id: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                       >
                         <option value="">Seleccionar servicio</option>
@@ -487,7 +471,7 @@ export default function Appointments() {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Operadora (Opcional)
+                        Operadora
                       </label>
                       <select
                         value={formData.operadora_id}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface RolePermissions {
@@ -7,7 +7,6 @@ interface RolePermissions {
 
 export function usePermissions() {
   const { userProfile } = useAuth()
-  const [loading, setLoading] = useState(true)
 
   const permissions = useMemo<RolePermissions>(() => {
     if (!userProfile) return {}
@@ -48,13 +47,9 @@ export function usePermissions() {
     return rolePermissions[userProfile.role] || { dashboard: ['read'] }
   }, [userProfile])
 
-  useEffect(() => {
-    setLoading(false)
-  }, [userProfile])
-
   const hasPermission = useMemo(() => 
     (module: string, action: string): boolean => {
-      if (!userProfile || loading) {
+      if (!userProfile) {
         return false
       }
 
@@ -67,7 +62,7 @@ export function usePermissions() {
       const modulePermissions = permissions[module]
       return modulePermissions?.includes(action) || false
     },
-    [userProfile, loading, permissions]
+    [userProfile, permissions]
   )
 
   const canAccessModule = useMemo(() => 
@@ -75,64 +70,15 @@ export function usePermissions() {
     [hasPermission]
   )
 
-  const getAccessibleModules = useMemo(() => 
-    (): string[] => {
-      const allModules = [
-        'dashboard',
-        'patients', 
-        'appointments',
-        'services',
-        'payments',
-        'reports',
-        'import',
-        'roles',
-        'users'
-      ]
-
-      return allModules.filter(module => canAccessModule(module))
-    },
-    [canAccessModule]
-  )
-
-  const canCreate = useMemo(() => 
-    (module: string): boolean => hasPermission(module, 'create'),
-    [hasPermission]
-  )
-
-  const canUpdate = useMemo(() => 
-    (module: string): boolean => hasPermission(module, 'update'),
-    [hasPermission]
-  )
-
-  const canDelete = useMemo(() => 
-    (module: string): boolean => hasPermission(module, 'delete'),
-    [hasPermission]
-  )
-
-  const isAdmin = useMemo(() => 
-    (): boolean => userProfile?.role === 'administrador',
-    [userProfile]
-  )
-
-  const getModulePermissions = useMemo(() => 
-    (module: string): string[] => permissions[module] || [],
-    [permissions]
-  )
-
   return {
     permissions,
-    loading,
+    loading: false,
     hasPermission,
     canAccessModule,
-    getAccessibleModules,
-    canCreate,
-    canUpdate,
-    canDelete,
-    isAdmin,
-    getModulePermissions,
+    canCreate: (module: string) => hasPermission(module, 'create'),
+    canUpdate: (module: string) => hasPermission(module, 'update'),
+    canDelete: (module: string) => hasPermission(module, 'delete'),
+    isAdmin: () => userProfile?.role === 'administrador',
     userRole: userProfile?.role || null,
-    refreshPermissions: () => {
-      // No-op since permissions are computed from userProfile
-    }
   }
 }
