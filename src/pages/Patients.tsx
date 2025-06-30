@@ -13,7 +13,11 @@ import {
   X,
   Star,
   FileText,
-  Activity
+  Activity,
+  AlertCircle,
+  CheckCircle,
+  DollarSign,
+  CreditCard
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -58,6 +62,7 @@ export default function Patients() {
   const [isEditing, setIsEditing] = useState(false)
   const [showPatientDetails, setShowPatientDetails] = useState(false)
   const [patientStats, setPatientStats] = useState<any>({})
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     nombre_completo: '',
     telefono: '',
@@ -82,16 +87,25 @@ export default function Patients() {
 
   const fetchPatients = async () => {
     try {
+      setError('')
+      console.log('Fetching patients...')
+      
       const { data, error } = await supabase
         .from('patients')
         .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching patients:', error)
+        throw error
+      }
+
+      console.log('Patients fetched successfully:', data?.length || 0)
       setPatients(data || [])
     } catch (error) {
-      console.error('Error fetching patients:', error)
+      console.error('Error in fetchPatients:', error)
+      setError('Error al cargar los pacientes: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -99,10 +113,12 @@ export default function Patients() {
 
   const fetchPatientStats = async (patientId: string) => {
     try {
+      console.log('Fetching patient stats for:', patientId)
+      
       const [appointmentsRes, paymentsRes, treatmentsRes] = await Promise.all([
         supabase
           .from('appointments')
-          .select('id, status, precio_sesion, fecha_hora, services(nombre)')
+          .select('id, status, fecha_hora, services(nombre)')
           .eq('patient_id', patientId)
           .order('fecha_hora', { ascending: false }),
         supabase
@@ -148,35 +164,32 @@ export default function Patients() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
     
-    // Validaciones básicas
-    if (!formData.nombre_completo.trim()) {
-      alert('El nombre completo es requerido')
-      setLoading(false)
-      return
-    }
-
-    // Validación de teléfono si está presente
-    if (formData.telefono && formData.telefono.trim() && !/^\d{10}$/.test(formData.telefono.replace(/\D/g, ''))) {
-      alert('El teléfono debe tener 10 dígitos')
-      setLoading(false)
-      return
-    }
-
-    // Validación de fecha de nacimiento
-    if (formData.cumpleanos) {
-      const birthDate = new Date(formData.cumpleanos)
-      const today = new Date()
-      const age = today.getFullYear() - birthDate.getFullYear()
-      
-      if (age < 0 || age > 120) {
-        alert('Fecha de nacimiento inválida')
-        setLoading(false)
-        return
-      }
-    }
-
     try {
+      // Validaciones básicas
+      if (!formData.nombre_completo.trim()) {
+        throw new Error('El nombre completo es requerido')
+      }
+
+      // Validación de teléfono si está presente
+      if (formData.telefono && formData.telefono.trim() && !/^\d{10}$/.test(formData.telefono.replace(/\D/g, ''))) {
+        throw new Error('El teléfono debe tener 10 dígitos')
+      }
+
+      // Validación de fecha de nacimiento
+      if (formData.cumpleanos) {
+        const birthDate = new Date(formData.cumpleanos)
+        const today = new Date()
+        const age = today.getFullYear() - birthDate.getFullYear()
+        
+        if (age < 0 || age > 120) {
+          throw new Error('Fecha de nacimiento inválida')
+        }
+      }
+
+      console.log('Submitting patient data:', formData)
+
       const patientData = {
         nombre_completo: formData.nombre_completo.trim(),
         telefono: formData.telefono?.trim() || null,
@@ -189,28 +202,38 @@ export default function Patients() {
         observaciones: formData.observaciones?.trim() || null
       }
 
+      let result
       if (isEditing && selectedPatient) {
-        const { error } = await supabase
+        result = await supabase
           .from('patients')
           .update(patientData)
           .eq('id', selectedPatient.id)
-
-        if (error) throw error
+          .select()
       } else {
-        const { error } = await supabase
+        result = await supabase
           .from('patients')
           .insert([patientData])
+          .select()
+      }
 
-        if (error) throw error
+      const { error } = result
+
+      if (error) {
+        console.error('Database error:', error)
+        throw error
       }
 
       await fetchPatients()
       setShowModal(false)
       resetForm()
-      alert(isEditing ? 'Paciente actualizado exitosamente' : 'Paciente creado exitosamente')
+      
+      const message = isEditing ? 'Paciente actualizado exitosamente' : 'Paciente creado exitosamente'
+      alert(message)
     } catch (error) {
       console.error('Error saving patient:', error)
-      alert('Error al guardar el paciente. Por favor intenta de nuevo.')
+      const errorMessage = error instanceof Error ? error.message : 'Error al guardar el paciente'
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -226,13 +249,15 @@ export default function Patients() {
       zonas_tratamiento: [],
       precio_total: '',
       metodo_pago_preferido: '',
-        observaciones: ''
+      observaciones: ''
     })
     setSelectedPatient(null)
     setIsEditing(false)
+    setError('')
   }
 
   const openModal = (patient?: Patient, mode: 'edit' | 'view' = 'edit') => {
+    setError('')
     if (patient) {
       setSelectedPatient(patient)
       setIsEditing(mode === 'edit')
@@ -272,18 +297,25 @@ export default function Patients() {
 
     try {
       setLoading(true)
+      setError('')
+      
       const { error } = await supabase
         .from('patients')
         .update({ is_active: false })
         .eq('id', patientId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting patient:', error)
+        throw error
+      }
       
       await fetchPatients()
       alert('Paciente desactivado exitosamente')
     } catch (error) {
       console.error('Error deleting patient:', error)
-      alert('Error al desactivar el paciente')
+      const errorMessage = 'Error al desactivar el paciente: ' + (error as Error).message
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -325,6 +357,17 @@ export default function Patients() {
           Nuevo Paciente
         </button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
@@ -674,6 +717,15 @@ export default function Patients() {
                       <X className="w-6 h-6" />
                     </button>
                   </div>
+
+                  {error && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-center">
+                        <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-red-800 text-sm">{error}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>

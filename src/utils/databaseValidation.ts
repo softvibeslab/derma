@@ -197,7 +197,6 @@ export async function sanitizeAppointmentData(appointmentData: any): Promise<any
   // Ensure required fields have proper defaults
   sanitized.status = sanitized.status || 'agendada'
   sanitized.numero_sesion = sanitized.numero_sesion || 1
-  sanitized.is_paid = sanitized.is_paid || false
 
   // Clean text fields
   if (sanitized.observaciones_caja) {
@@ -332,6 +331,27 @@ export async function getValidUserId(userId?: string): Promise<string | null> {
   return null
 }
 
+// Database connection test
+export async function testDatabaseConnection(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('count')
+      .limit(1)
+
+    if (error) {
+      console.error('Database connection test failed:', error)
+      return false
+    }
+
+    console.log('Database connection test successful')
+    return true
+  } catch (error) {
+    console.error('Database connection test error:', error)
+    return false
+  }
+}
+
 // Utility function to format currency
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('es-MX', {
@@ -358,4 +378,43 @@ export function generateClientNumber(): string {
   const timestamp = Date.now().toString().slice(-6)
   const random = Math.random().toString(36).substr(2, 4).toUpperCase()
   return `DC-${timestamp}-${random}`
+}
+
+// Database health check
+export async function checkDatabaseHealth(): Promise<{
+  isHealthy: boolean
+  tables: Record<string, boolean>
+  errors: string[]
+}> {
+  const tables = ['users', 'patients', 'services', 'appointments', 'payments', 'roles']
+  const tableStatus: Record<string, boolean> = {}
+  const errors: string[] = []
+  let isHealthy = true
+
+  for (const table of tables) {
+    try {
+      const { error } = await supabase
+        .from(table)
+        .select('count')
+        .limit(1)
+
+      if (error) {
+        tableStatus[table] = false
+        errors.push(`Error accessing table ${table}: ${error.message}`)
+        isHealthy = false
+      } else {
+        tableStatus[table] = true
+      }
+    } catch (error) {
+      tableStatus[table] = false
+      errors.push(`Exception accessing table ${table}: ${(error as Error).message}`)
+      isHealthy = false
+    }
+  }
+
+  return {
+    isHealthy,
+    tables: tableStatus,
+    errors
+  }
 }

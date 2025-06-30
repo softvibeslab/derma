@@ -48,6 +48,7 @@ export default function Roles() {
   const [showModal, setShowModal] = useState(false)
   const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -65,15 +66,24 @@ export default function Roles() {
 
   const fetchRoles = async () => {
     try {
+      setError('')
+      console.log('Fetching roles...')
+      
       const { data, error } = await supabase
         .from('roles')
         .select('*')
         .order('name', { ascending: true })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching roles:', error)
+        throw error
+      }
+
+      console.log('Roles fetched successfully:', data)
       setRoles(data || [])
     } catch (error) {
-      console.error('Error fetching roles:', error)
+      console.error('Error in fetchRoles:', error)
+      setError('Error al cargar los roles: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -82,55 +92,77 @@ export default function Roles() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
     
-    // Validaciones
-    if (!formData.name.trim()) {
-      alert('El nombre del rol es requerido')
-      setLoading(false)
-      return
-    }
-    
-    // Verificar que tenga al menos un permiso
-    const hasPermissions = Object.keys(formData.permissions).length > 0
-    if (!hasPermissions) {
-      alert('Debe asignar al menos un permiso al rol')
-      setLoading(false)
-      return
-    }
-
     try {
+      // Validaciones
+      if (!formData.name.trim()) {
+        throw new Error('El nombre del rol es requerido')
+      }
+      
+      // Verificar que tenga al menos un permiso
+      const hasPermissions = Object.keys(formData.permissions).length > 0
+      if (!hasPermissions) {
+        throw new Error('Debe asignar al menos un permiso al rol')
+      }
+
+      console.log('Submitting role data:', formData)
+
       const roleData = {
-        name: formData.name,
-        description: formData.description || null,
+        name: formData.name.trim(),
+        description: formData.description?.trim() || null,
         permissions: formData.permissions
       }
 
+      let result
       if (isEditing && selectedRole) {
-        const { error } = await supabase
+        console.log('Updating role:', selectedRole.id)
+        result = await supabase
           .from('roles')
           .update(roleData)
           .eq('id', selectedRole.id)
-
-        if (error) throw error
+          .select()
       } else {
-        const { error } = await supabase
+        console.log('Creating new role')
+        result = await supabase
           .from('roles')
           .insert([roleData])
-
-        if (error) throw error
+          .select()
       }
+
+      const { data, error } = result
+
+      if (error) {
+        console.error('Database error:', error)
+        throw error
+      }
+
+      console.log('Role saved successfully:', data)
 
       await fetchRoles()
       setShowModal(false)
       resetForm()
-      alert(isEditing ? 'Rol actualizado exitosamente' : 'Rol creado exitosamente')
+      
+      const message = isEditing ? 'Rol actualizado exitosamente' : 'Rol creado exitosamente'
+      alert(message)
+      
     } catch (error) {
       console.error('Error saving role:', error)
-      if (error instanceof Error && error.message.includes('duplicate')) {
-        alert('Error: Ya existe un rol con ese nombre.')
-      } else {
-        alert('Error al guardar el rol. Por favor intenta de nuevo.')
+      
+      let errorMessage = 'Error al guardar el rol'
+      
+      if (error instanceof Error) {
+        if (error.message.includes('duplicate') || error.message.includes('unique')) {
+          errorMessage = 'Ya existe un rol con ese nombre'
+        } else if (error.message.includes('permission')) {
+          errorMessage = 'No tienes permisos para realizar esta acción'
+        } else {
+          errorMessage = error.message
+        }
       }
+      
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -143,6 +175,7 @@ export default function Roles() {
 
     try {
       setLoading(true)
+      setError('')
       
       // Check if role is being used by any users
       const { data: users, error: usersError } = await supabase
@@ -151,11 +184,13 @@ export default function Roles() {
         .eq('role', roleName)
         .limit(1)
 
-      if (usersError) throw usersError
+      if (usersError) {
+        console.error('Error checking users:', usersError)
+        throw usersError
+      }
 
       if (users && users.length > 0) {
-        alert('No se puede eliminar este rol porque está siendo usado por usuarios.')
-        return
+        throw new Error('No se puede eliminar este rol porque está siendo usado por usuarios.')
       }
 
       const { error } = await supabase
@@ -163,12 +198,18 @@ export default function Roles() {
         .delete()
         .eq('id', roleId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting role:', error)
+        throw error
+      }
 
       await fetchRoles()
+      alert('Rol eliminado exitosamente')
     } catch (error) {
       console.error('Error deleting role:', error)
-      alert('Error al eliminar el rol. Inténtalo de nuevo.')
+      const errorMessage = error instanceof Error ? error.message : 'Error al eliminar el rol'
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -182,9 +223,11 @@ export default function Roles() {
     })
     setSelectedRole(null)
     setIsEditing(false)
+    setError('')
   }
 
   const openModal = (role?: Role) => {
+    setError('')
     if (role) {
       setSelectedRole(role)
       setIsEditing(true)
@@ -280,6 +323,17 @@ export default function Roles() {
           Nuevo Rol
         </button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+        </div>
+      )}
 
       {/* Roles List */}
       <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
@@ -378,6 +432,15 @@ export default function Roles() {
                       <X className="w-6 h-6" />
                     </button>
                   </div>
+
+                  {error && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-center">
+                        <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-red-800 text-sm">{error}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Basic Information */}

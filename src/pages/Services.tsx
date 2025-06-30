@@ -7,7 +7,8 @@ import {
   Clock,
   DollarSign,
   Zap,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react'
 
 interface Service {
@@ -35,7 +36,13 @@ const ZONAS_DISPONIBLES = [
   'espalda',
   'pecho',
   'cara_completa',
-  'cuerpo_completo'
+  'cuerpo_completo',
+  'rostro',
+  'gluteos',
+  'escote',
+  'cuello',
+  'manos',
+  'uñas'
 ]
 
 export default function Services() {
@@ -44,6 +51,7 @@ export default function Services() {
   const [showModal, setShowModal] = useState(false)
   const [selectedService, setSelectedService] = useState<Service | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     nombre: '',
     descripcion: '',
@@ -60,16 +68,25 @@ export default function Services() {
 
   const fetchServices = async () => {
     try {
+      setError('')
+      console.log('Fetching services...')
+      
       const { data, error } = await supabase
         .from('services')
         .select('*')
         .eq('is_active', true)
         .order('zona', { ascending: true })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching services:', error)
+        throw error
+      }
+
+      console.log('Services fetched successfully:', data?.length || 0)
       setServices(data || [])
     } catch (error) {
-      console.error('Error fetching services:', error)
+      console.error('Error in fetchServices:', error)
+      setError('Error al cargar los servicios: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -82,18 +99,25 @@ export default function Services() {
 
     try {
       setLoading(true)
+      setError('')
+      
       const { error } = await supabase
         .from('services')
         .update({ is_active: false })
         .eq('id', serviceId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting service:', error)
+        throw error
+      }
       
       await fetchServices()
       alert('Servicio desactivado exitosamente')
     } catch (error) {
       console.error('Error deleting service:', error)
-      alert('Error al desactivar el servicio')
+      const errorMessage = 'Error al desactivar el servicio: ' + (error as Error).message
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -101,37 +125,35 @@ export default function Services() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     
-    // Validaciones
-    if (!formData.nombre.trim()) {
-      alert('El nombre del servicio es requerido')
-      return
-    }
-    
-    if (!formData.zona) {
-      alert('La zona corporal es requerida')
-      return
-    }
-    
-    if (!formData.precio_base || parseFloat(formData.precio_base) <= 0) {
-      alert('El precio base debe ser mayor a 0')
-      return
-    }
-
-    // Validaciones adicionales
-    if (formData.duracion_minutos && parseInt(formData.duracion_minutos) <= 0) {
-      alert('La duración debe ser mayor a 0 minutos')
-      return
-    }
-
-    if (formData.sesiones_recomendadas && parseInt(formData.sesiones_recomendadas) <= 0) {
-      alert('Las sesiones recomendadas deben ser mayor a 0')
-      return
-    }
-    
-    setLoading(true)
-
     try {
+      // Validaciones
+      if (!formData.nombre.trim()) {
+        throw new Error('El nombre del servicio es requerido')
+      }
+      
+      if (!formData.zona) {
+        throw new Error('La zona corporal es requerida')
+      }
+      
+      if (!formData.precio_base || parseFloat(formData.precio_base) <= 0) {
+        throw new Error('El precio base debe ser mayor a 0')
+      }
+
+      // Validaciones adicionales
+      if (formData.duracion_minutos && parseInt(formData.duracion_minutos) <= 0) {
+        throw new Error('La duración debe ser mayor a 0 minutos')
+      }
+
+      if (formData.sesiones_recomendadas && parseInt(formData.sesiones_recomendadas) <= 0) {
+        throw new Error('Las sesiones recomendadas deben ser mayor a 0')
+      }
+      
+      setLoading(true)
+
+      console.log('Submitting service data:', formData)
+
       const serviceData = {
         nombre: formData.nombre.trim(),
         descripcion: formData.descripcion?.trim() || null,
@@ -142,28 +164,38 @@ export default function Services() {
         tecnologia: formData.tecnologia?.trim() || 'Sopranoice'
       }
 
+      let result
       if (isEditing && selectedService) {
-        const { error } = await supabase
+        result = await supabase
           .from('services')
           .update(serviceData)
           .eq('id', selectedService.id)
-
-        if (error) throw error
+          .select()
       } else {
-        const { error } = await supabase
+        result = await supabase
           .from('services')
           .insert([serviceData])
+          .select()
+      }
 
-        if (error) throw error
+      const { error } = result
+
+      if (error) {
+        console.error('Database error:', error)
+        throw error
       }
 
       await fetchServices()
       setShowModal(false)
       resetForm()
-      alert(isEditing ? 'Servicio actualizado exitosamente' : 'Servicio creado exitosamente')
+      
+      const message = isEditing ? 'Servicio actualizado exitosamente' : 'Servicio creado exitosamente'
+      alert(message)
     } catch (error) {
       console.error('Error saving service:', error)
-      alert('Error al guardar el servicio. Por favor intenta de nuevo.')
+      const errorMessage = error instanceof Error ? error.message : 'Error al guardar el servicio'
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -181,9 +213,11 @@ export default function Services() {
     })
     setSelectedService(null)
     setIsEditing(false)
+    setError('')
   }
 
   const openModal = (service?: Service) => {
+    setError('')
     if (service) {
       setSelectedService(service)
       setIsEditing(true)
@@ -204,15 +238,22 @@ export default function Services() {
 
   const toggleServiceStatus = async (serviceId: string, currentStatus: boolean) => {
     try {
+      setError('')
+      
       const { error } = await supabase
         .from('services')
         .update({ is_active: !currentStatus })
         .eq('id', serviceId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error updating service status:', error)
+        throw error
+      }
+      
       await fetchServices()
     } catch (error) {
       console.error('Error updating service status:', error)
+      setError('Error al actualizar el estado del servicio')
     }
   }
 
@@ -261,6 +302,17 @@ export default function Services() {
         </button>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+        </div>
+      )}
+
       {/* Services Grid */}
       {Object.keys(groupedServices).length > 0 ? (
         <div className="space-y-8">
@@ -284,20 +336,22 @@ export default function Services() {
                             </p>
                           )}
                         </div>
-                        <button
-                          onClick={() => openModal(service)}
-                          className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
-                          title="Editar servicio"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteService(service.id, service.nombre)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
-                          title="Eliminar servicio"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={() => openModal(service)}
+                            className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
+                            title="Editar servicio"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteService(service.id, service.nombre)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar servicio"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="space-y-3">
@@ -412,6 +466,15 @@ export default function Services() {
                       <X className="w-6 h-6" />
                     </button>
                   </div>
+
+                  {error && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-center">
+                        <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-red-800 text-sm">{error}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     <div>

@@ -11,7 +11,9 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  X
+  X,
+  Edit,
+  Trash2
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -67,7 +69,7 @@ export default function Appointments() {
   const [showModal, setShowModal] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [isEditing, setIsEditing] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<any>({})
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     patient_id: '',
     service_id: '',
@@ -85,6 +87,7 @@ export default function Appointments() {
   const fetchData = async () => {
     try {
       setLoading(true)
+      setError('')
       
       const startDate = startOfMonth(currentDate)
       const endDate = endOfMonth(currentDate)
@@ -94,14 +97,6 @@ export default function Appointments() {
         endDate: endDate.toISOString(),
         currentDate: currentDate.toISOString()
       })
-
-      // Test basic connectivity first
-      const { data: testData, error: testError } = await supabase
-        .from('appointments')
-        .select('count')
-        .limit(1)
-
-      console.log('🔗 Supabase connectivity test:', { testData, testError })
 
       // Fetch appointments with detailed logging
       const appointmentsQuery = supabase
@@ -115,8 +110,6 @@ export default function Appointments() {
         .gte('fecha_hora', startDate.toISOString())
         .lte('fecha_hora', endDate.toISOString())
         .order('fecha_hora', { ascending: true })
-
-      console.log('📅 Appointments query:', appointmentsQuery)
 
       const appointmentsRes = await appointmentsQuery
 
@@ -173,52 +166,16 @@ export default function Appointments() {
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
       
-      // Update debug info
-      setDebugInfo({
-        appointmentsCount: appointmentsData.length,
-        patientsCount: patientsRes.data?.length || 0,
-        servicesCount: servicesRes.data?.length || 0,
-        usersCount: usersRes.data?.length || 0,
-        dateRange: {
-          start: startDate.toISOString(),
-          end: endDate.toISOString()
-        },
-        sampleAppointment: appointmentsData[0] || null
-      })
-
       console.log('✅ Data loaded successfully:', {
         appointments: appointmentsData.length,
         patients: patientsRes.data?.length || 0,
         services: servicesRes.data?.length || 0,
         users: usersRes.data?.length || 0
       })
-
-      // If no appointments found, let's check if there are any appointments at all
-      if (appointmentsData.length === 0) {
-        const { data: allAppointments, error: allError } = await supabase
-          .from('appointments')
-          .select('id, fecha_hora, status')
-          .limit(10)
-
-        console.log('🔍 All appointments check:', {
-          data: allAppointments,
-          error: allError,
-          count: allAppointments?.length || 0
-        })
-
-        setDebugInfo(prev => ({
-          ...prev,
-          totalAppointmentsInDB: allAppointments?.length || 0,
-          sampleAllAppointments: allAppointments || []
-        }))
-      }
       
     } catch (error) {
       console.error('💥 Error fetching data:', error)
-      setDebugInfo(prev => ({
-        ...prev,
-        error: error.message || 'Unknown error'
-      }))
+      setError('Error al cargar los datos: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -254,18 +211,25 @@ export default function Appointments() {
 
     try {
       setLoading(true)
+      setError('')
+      
       const { error } = await supabase
         .from('appointments')
         .update({ status: 'cancelada' })
         .eq('id', appointmentId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error canceling appointment:', error)
+        throw error
+      }
       
       await fetchData()
       alert('Cita cancelada exitosamente')
     } catch (error) {
       console.error('Error canceling appointment:', error)
-      alert('Error al cancelar la cita')
+      const errorMessage = 'Error al cancelar la cita: ' + (error as Error).message
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -273,19 +237,20 @@ export default function Appointments() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     
     if (!formData.patient_id) {
-      alert('Debe seleccionar un paciente')
+      setError('Debe seleccionar un paciente')
       return
     }
     
     if (!formData.service_id) {
-      alert('Debe seleccionar un servicio')
+      setError('Debe seleccionar un servicio')
       return
     }
     
     if (!formData.fecha_hora) {
-      alert('Debe seleccionar fecha y hora')
+      setError('Debe seleccionar fecha y hora')
       return
     }
     
@@ -299,34 +264,43 @@ export default function Appointments() {
         fecha_hora: formData.fecha_hora,
         numero_sesion: formData.numero_sesion,
         status: formData.status,
-        observaciones_caja: formData.observaciones_caja?.trim() || null,
-        is_paid: false
+        observaciones_caja: formData.observaciones_caja?.trim() || null
       }
 
       console.log('💾 Submitting appointment data:', appointmentData)
 
+      let result
       if (isEditing && selectedAppointment) {
-        const { error } = await supabase
+        result = await supabase
           .from('appointments')
           .update(appointmentData)
           .eq('id', selectedAppointment.id)
-
-        if (error) throw error
+          .select()
       } else {
-        const { error } = await supabase
+        result = await supabase
           .from('appointments')
           .insert([appointmentData])
+          .select()
+      }
 
-        if (error) throw error
+      const { error } = result
+
+      if (error) {
+        console.error('Database error:', error)
+        throw error
       }
 
       await fetchData()
       setShowModal(false)
       resetForm()
-      alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
+      
+      const message = isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente'
+      alert(message)
     } catch (error) {
       console.error('Error saving appointment:', error)
-      alert(`Error al guardar la cita: ${error?.message || 'Error desconocido'}`)
+      const errorMessage = `Error al guardar la cita: ${(error as Error).message}`
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -344,9 +318,11 @@ export default function Appointments() {
     })
     setSelectedAppointment(null)
     setIsEditing(false)
+    setError('')
   }
 
   const openModal = (appointment?: Appointment, date?: Date) => {
+    setError('')
     if (appointment) {
       setSelectedAppointment(appointment)
       setIsEditing(true)
@@ -382,6 +358,8 @@ export default function Appointments() {
 
     try {
       setLoading(true)
+      setError('')
+      
       const tomorrow = new Date()
       tomorrow.setDate(tomorrow.getDate() + 1)
       tomorrow.setHours(10, 0, 0, 0)
@@ -392,8 +370,7 @@ export default function Appointments() {
         fecha_hora: tomorrow.toISOString(),
         numero_sesion: 1,
         status: 'agendada',
-        observaciones_caja: 'Cita de prueba creada automáticamente',
-        is_paid: false
+        observaciones_caja: 'Cita de prueba creada automáticamente'
       }
 
       console.log('🧪 Creating sample appointment:', sampleData)
@@ -402,13 +379,18 @@ export default function Appointments() {
         .from('appointments')
         .insert([sampleData])
 
-      if (error) throw error
+      if (error) {
+        console.error('Error creating sample appointment:', error)
+        throw error
+      }
 
       await fetchData()
       alert('Cita de prueba creada exitosamente')
     } catch (error) {
       console.error('Error creating sample appointment:', error)
-      alert('Error al crear cita de prueba: ' + error.message)
+      const errorMessage = 'Error al crear cita de prueba: ' + (error as Error).message
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -461,32 +443,14 @@ export default function Appointments() {
         </div>
       </div>
 
-      {/* Debug Info */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">🔍 Debug Info:</h3>
-          <div className="text-xs text-yellow-700 space-y-1">
-            <p><strong>Citas cargadas:</strong> {debugInfo.appointmentsCount || 0}</p>
-            <p><strong>Pacientes:</strong> {debugInfo.patientsCount || 0}</p>
-            <p><strong>Servicios:</strong> {debugInfo.servicesCount || 0}</p>
-            <p><strong>Usuarios:</strong> {debugInfo.usersCount || 0}</p>
-            <p><strong>Mes actual:</strong> {format(currentDate, 'MMMM yyyy', { locale: es })}</p>
-            <p><strong>Filtro:</strong> {statusFilter || 'Ninguno'}</p>
-            {debugInfo.totalAppointmentsInDB !== undefined && (
-              <p><strong>Total citas en BD:</strong> {debugInfo.totalAppointmentsInDB}</p>
-            )}
-            {debugInfo.error && (
-              <p className="text-red-600"><strong>Error:</strong> {debugInfo.error}</p>
-            )}
-            {debugInfo.sampleAppointment && (
-              <details className="mt-2">
-                <summary className="cursor-pointer">Ver muestra de cita</summary>
-                <pre className="mt-1 text-xs bg-yellow-100 p-2 rounded overflow-auto">
-                  {JSON.stringify(debugInfo.sampleAppointment, null, 2)}
-                </pre>
-              </details>
-            )}
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
           </div>
+          <p className="text-red-700 mt-1">{error}</p>
         </div>
       )}
 
@@ -637,6 +601,15 @@ export default function Appointments() {
                       <X className="w-6 h-6" />
                     </button>
                   </div>
+
+                  {error && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-center">
+                        <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-red-800 text-sm">{error}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     <div>

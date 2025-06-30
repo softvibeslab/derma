@@ -63,6 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserProfile = async (userId: string) => {
     try {
+      console.log('Fetching user profile for:', userId)
+      
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -70,16 +72,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (error && error.code === 'PGRST116') {
+        console.log('User profile not found, creating temporary profile')
         // Usuario no existe, obtener datos de auth
         const { data: authUser } = await supabase.auth.getUser()
         if (authUser.user) {
           const tempProfile = createTempProfile(userId, authUser.user.email || '')
           setUserProfile(tempProfile)
+          
+          // Try to create the profile in the database
+          try {
+            await supabase
+              .from('users')
+              .insert([{
+                id: userId,
+                email: authUser.user.email,
+                full_name: tempProfile.full_name,
+                role: tempProfile.role,
+                is_active: true
+              }])
+          } catch (insertError) {
+            console.warn('Could not create user profile in database:', insertError)
+          }
+          
           return
         }
       }
 
+      if (error) {
+        console.error('Error fetching user profile:', error)
+        throw error
+      }
+
       if (data) {
+        console.log('User profile loaded successfully:', data)
         // Asegurar que tiene rol
         if (!data.role) {
           const email = data.email || ''
@@ -112,18 +137,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      console.log('Attempting to sign in with email:', email)
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
+      
+      if (error) {
+        console.error('Sign in error:', error)
+      } else {
+        console.log('Sign in successful:', data)
+      }
+      
       return { error }
     } catch (error) {
+      console.error('Sign in exception:', error)
       return { error }
     }
   }
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
     try {
+      console.log('Attempting to sign up with email:', email)
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -134,16 +171,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
+      if (error) {
+        console.error('Sign up error:', error)
+      } else {
+        console.log('Sign up successful:', data)
+      }
+
       return { error }
     } catch (error) {
+      console.error('Sign up exception:', error)
       return { error }
     }
   }
 
   const signOut = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setUserProfile(null)
+    try {
+      console.log('Signing out user')
+      await supabase.auth.signOut()
+      setUser(null)
+      setUserProfile(null)
+    } catch (error) {
+      console.error('Sign out error:', error)
+    }
   }
 
   useEffect(() => {
@@ -151,6 +200,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
+        console.log('Initializing auth...')
+        
         const { data: { session }, error } = await supabase.auth.getSession()
 
         if (error) {
@@ -160,6 +211,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           return
         }
+
+        console.log('Session loaded:', session ? 'User logged in' : 'No session')
 
         if (mounted) {
           setUser(session?.user ?? null)
@@ -179,6 +232,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session ? 'User logged in' : 'No session')
+      
       if (mounted) {
         setUser(session?.user ?? null)
         if (session?.user) {
@@ -194,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false
       subscription.unsubscribe()
     }
-  }, []) // Sin dependencias para evitar bucles
+  }, [])
 
   const value = {
     user,
