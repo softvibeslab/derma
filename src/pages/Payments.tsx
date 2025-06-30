@@ -195,6 +195,9 @@ export default function Payments() {
 
   const fetchPendingAppointments = async () => {
     try {
+      setError('')
+      console.log('Fetching pending appointments...')
+      
       const { data, error } = await supabase
         .from('appointments')
         .select(`
@@ -209,10 +212,16 @@ export default function Payments() {
         .in('status', ['agendada', 'confirmada', 'completada'])
         .order('fecha_hora', { ascending: true })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching pending appointments:', error)
+        throw error
+      }
+      
+      console.log('Pending appointments fetched:', data?.length || 0)
       setPendingAppointments(data || [])
     } catch (error) {
       console.error('Error fetching pending appointments:', error)
+      setError('Error al cargar citas pendientes: ' + (error as Error).message)
     }
   }
 
@@ -263,13 +272,32 @@ export default function Payments() {
   }
 
   const processPayment = async () => {
-    if (cart.length === 0) return
+    if (cart.length === 0) {
+      setError('El carrito está vacío')
+      return
+    }
     
     const total = calculateTotal()
+    
+    if (total <= 0) {
+      setError('El total debe ser mayor a 0')
+      return
+    }
+
+    // Validar pago en efectivo
+    if (paymentMethod === 'efectivo' && amountPaid) {
+      const paid = parseFloat(amountPaid)
+      if (paid < total) {
+        setError('El monto recibido es menor al total')
+        return
+      }
+    }
 
     try {
       setLoading(true)
       setError('')
+      console.log('Processing payment for cart:', cart)
+      
       const ticketNumber = `TKT-${Date.now()}`
 
       // Group cart items by patient
@@ -284,6 +312,8 @@ export default function Payments() {
       // Create payment records for each patient
       for (const [patientId, items] of Object.entries(patientGroups)) {
         const patientTotal = items.reduce((sum, item) => sum + item.amount, 0)
+        
+        console.log(`Creating payment for patient ${patientId}, total: ${patientTotal}`)
         
         // Create main payment record
         const paymentData = {
@@ -304,16 +334,28 @@ export default function Payments() {
           .select()
           .single()
 
-        if (paymentError) throw paymentError
+        if (paymentError) {
+          console.error('Error creating payment:', paymentError)
+          throw paymentError
+        }
+
+        console.log('Payment created successfully:', insertedPayment)
 
         // Update each appointment with payment info
         for (const item of items) {
-          await supabase
+          console.log(`Updating appointment ${item.appointment_id}`)
+          
+          const { error: appointmentError } = await supabase
             .from('appointments')
             .update({ 
               status: 'completada'
             })
             .eq('id', item.appointment_id)
+
+          if (appointmentError) {
+            console.error('Error updating appointment:', appointmentError)
+            // Continue with other appointments even if one fails
+          }
 
           // Create individual payment record for each appointment
           const itemPaymentData = {
@@ -328,9 +370,14 @@ export default function Payments() {
             referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}-${item.appointment_id.slice(-4)}` : null
           }
 
-          await supabase
+          const { error: itemPaymentError } = await supabase
             .from('payments')
             .insert([itemPaymentData])
+
+          if (itemPaymentError) {
+            console.error('Error creating item payment:', itemPaymentError)
+            // Continue with other items even if one fails
+          }
         }
 
         // Generate ticket for this patient
