@@ -18,9 +18,8 @@ export default function ProtectedRoute({
   const { user, userProfile, loading: authLoading } = useAuth()
   const { hasPermission, loading: permissionsLoading } = usePermissions()
 
-  const loading = authLoading || permissionsLoading
-
-  if (loading) {
+  // Simplificar la lógica de loading
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -35,7 +34,7 @@ export default function ProtectedRoute({
     return <Navigate to="/login" replace />
   }
 
-  // Si no hay perfil de usuario, mostrar error simplificado
+  // Si no hay perfil, mostrar error simple
   if (!userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -45,20 +44,20 @@ export default function ProtectedRoute({
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Error de Usuario</h2>
           <p className="text-gray-600 mb-4">
-            No se pudo cargar tu perfil. Por favor intenta recargar la página.
+            No se pudo cargar tu perfil. Intenta recargar la página.
           </p>
           <button
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
           >
-            Recargar Página
+            Recargar
           </button>
         </div>
       </div>
     )
   }
 
-  // Check module-specific permissions
+  // Verificar permisos si se requieren
   if (requiredModule && !hasPermission(requiredModule, requiredAction)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -72,12 +71,9 @@ export default function ProtectedRoute({
           </p>
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
             <p className="text-sm text-yellow-800">
-              Tu rol actual es: <span className="font-mono capitalize">{userProfile.role}</span>
+              Tu rol actual: <span className="font-mono capitalize">{userProfile.role}</span>
             </p>
           </div>
-          <p className="text-sm text-gray-500">
-            Contacta al administrador si necesitas acceso.
-          </p>
         </div>
       </div>
     )

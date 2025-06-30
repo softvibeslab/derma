@@ -43,7 +43,7 @@ export type Database = {
           id: string
           email: string
           full_name: string
-          role?: string
+          role: string
           role_id: string | null
           sucursal: string | null
           is_active: boolean

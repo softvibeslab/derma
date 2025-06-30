@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { validateAppointmentData, sanitizeAppointmentData, getValidUserId } from '../utils/databaseValidation'
+import { useAuth } from '../contexts/AuthContext'
 
 interface Appointment {
   id: string
@@ -24,7 +26,6 @@ interface Appointment {
   fecha_hora: string
   numero_sesion: number | null
   status: string
-  precio_sesion: number | null
   observaciones_caja: string | null
   observaciones_operadora: string | null
   patients: {
@@ -40,8 +41,6 @@ interface Appointment {
     full_name: string
   } | null
 }
-import { validateAppointmentData, sanitizeAppointmentData, getValidUserId } from '../utils/databaseValidation'
-import { useAuth } from '../contexts/AuthContext'
 
 const STATUS_COLORS = {
   agendada: 'bg-blue-100 text-blue-800',
@@ -66,11 +65,7 @@ export default function Appointments() {
   const [services, setServices] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [loadingUsers, setLoadingUsers] = useState(true)
-  const [loadingPatients, setLoadingPatients] = useState(true)
-  const [loadingServices, setLoadingServices] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
@@ -93,30 +88,24 @@ export default function Appointments() {
 
   const fetchData = async () => {
     try {
-      setLoadingPatients(true)
-      setLoadingServices(true)
-      setLoadingUsers(true)
+      setLoading(true)
       
       const startDate = startOfMonth(currentDate)
       const endDate = endOfMonth(currentDate)
 
-      // Fetch appointments for the current month
-      const { data: appointmentsData, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select(`
-          *,
-          patients(nombre_completo, telefono),
-          services(nombre, zona, duracion_minutos),
-          users(full_name)
-        `)
-        .gte('fecha_hora', startDate.toISOString())
-        .lte('fecha_hora', endDate.toISOString())
-        .order('fecha_hora', { ascending: true })
-
-      if (appointmentsError) throw appointmentsError
-
-      // Fetch patients, services, and users for the form
-      const [patientsRes, servicesRes, usersRes] = await Promise.all([
+      // Fetch data concurrently
+      const [appointmentsRes, patientsRes, servicesRes, usersRes] = await Promise.all([
+        supabase
+          .from('appointments')
+          .select(`
+            *,
+            patients(nombre_completo, telefono),
+            services(nombre, zona, duracion_minutos),
+            users(full_name)
+          `)
+          .gte('fecha_hora', startDate.toISOString())
+          .lte('fecha_hora', endDate.toISOString())
+          .order('fecha_hora', { ascending: true }),
         supabase
           .from('patients')
           .select('id, nombre_completo, telefono')
@@ -129,40 +118,20 @@ export default function Appointments() {
           .order('nombre'),
         supabase
           .from('users')
-          .select('id, full_name, role_id, roles(name)')
+          .select('id, full_name')
           .eq('is_active', true)
           .order('full_name')
       ])
 
-      console.log('Fetched data:', { 
-        patients: patientsRes.data?.length, 
-        services: servicesRes.data?.length, 
-        users: usersRes.data?.length 
-      })
-
-      if (patientsRes.error) {
-        console.error('Error fetching patients:', patientsRes.error)
-      }
-      if (servicesRes.error) {
-        console.error('Error fetching services:', servicesRes.error)
-      }
-      if (usersRes.error) {
-        console.error('Error fetching users:', usersRes.error)
-      }
-
-      setAppointments(appointmentsData || [])
+      setAppointments(appointmentsRes.data || [])
       setPatients(patientsRes.data || [])
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
       
     } catch (error) {
       console.error('Error fetching data:', error)
-      alert('Error al cargar los datos. Por favor recarga la página.')
     } finally {
       setLoading(false)
-      setLoadingPatients(false)
-      setLoadingServices(false)
-      setLoadingUsers(false)
     }
   }
 
@@ -214,7 +183,6 @@ export default function Appointments() {
       return
     }
 
-    // Mostrar advertencias si las hay
     if (validation.warnings.length > 0) {
       const proceed = confirm(`Advertencias:\n${validation.warnings.join('\n')}\n\n¿Desea continuar?`)
       if (!proceed) return
@@ -223,14 +191,13 @@ export default function Appointments() {
     setLoading(true)
 
     try {
-      // Obtener un cajera_id válido
       const validCajeraId = await getValidUserId(userProfile?.id)
       
       const appointmentData = await sanitizeAppointmentData({
         patient_id: formData.patient_id,
         service_id: formData.service_id,
-        operadora_id: formData.operadora_id || null, // Can be null if no operadora selected
-        cajera_id: validCajeraId, // Valid user ID or null
+        operadora_id: formData.operadora_id || null,
+        cajera_id: validCajeraId,
         fecha_hora: formData.fecha_hora,
         duracion_minutos: formData.duracion_minutos ? parseInt(formData.duracion_minutos) : null,
         numero_sesion: formData.numero_sesion,
@@ -240,7 +207,6 @@ export default function Appointments() {
         is_paid: false
       })
 
-      console.log('Creating appointment with data:', appointmentData)
       if (isEditing && selectedAppointment) {
         const { error } = await supabase
           .from('appointments')
@@ -262,21 +228,7 @@ export default function Appointments() {
       alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
     } catch (error) {
       console.error('Error saving appointment:', error)
-      
-      // More specific error handling
-      if (error?.code === '23503') {
-        if (error.message.includes('operadora_id_fkey')) {
-          alert('La operadora seleccionada no existe. Por favor selecciona otra o deja el campo vacío.')
-        } else if (error.message.includes('patient_id_fkey')) {
-          alert('El paciente seleccionado no existe. Por favor selecciona otro paciente.')
-        } else if (error.message.includes('service_id_fkey')) {
-          alert('El servicio seleccionado no existe. Por favor selecciona otro servicio.')
-        } else {
-          alert('Error de relación en la base de datos. Verifica que todos los datos sean válidos.')
-        }
-      } else {
-        alert(`Error al guardar la cita: ${error?.message || 'Error desconocido'}`)
-      }
+      alert(`Error al guardar la cita: ${error?.message || 'Error desconocido'}`)
     } finally {
       setLoading(false)
     }
@@ -311,7 +263,7 @@ export default function Appointments() {
         status: appointment.status,
         observaciones_caja: appointment.observaciones_caja || '',
         observaciones_operadora: appointment.observaciones_operadora || '',
-        duracion_minutos: appointment.duracion_minutos?.toString() || ''
+        duracion_minutos: appointment.services?.duracion_minutos?.toString() || ''
       })
     } else {
       resetForm()
@@ -325,20 +277,6 @@ export default function Appointments() {
       }
     }
     setShowModal(true)
-  }
-
-  const updateAppointmentStatus = async (appointmentId: string, newStatus: string) => {
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: newStatus })
-        .eq('id', appointmentId)
-
-      if (error) throw error
-      await fetchData()
-    } catch (error) {
-      console.error('Error updating appointment status:', error)
-    }
   }
 
   if (loading && appointments.length === 0) {
@@ -418,14 +356,12 @@ export default function Appointments() {
 
         {/* Calendar Grid */}
         <div className="grid grid-cols-7 gap-1">
-          {/* Day headers */}
           {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((day) => (
             <div key={day} className="p-2 text-center text-sm font-medium text-gray-500">
               {day}
             </div>
           ))}
           
-          {/* Calendar days */}
           {days.map((day) => {
             const dayAppointments = getAppointmentsForDate(day)
             const isToday = isSameDay(day, new Date())
@@ -481,109 +417,6 @@ export default function Appointments() {
         </div>
       </div>
 
-      {/* Appointments List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">
-            Citas del Mes
-          </h3>
-        </div>
-        <div className="divide-y divide-gray-200">
-          {appointments.length > 0 ? (
-            appointments
-              .filter(appointment => !statusFilter || appointment.status === statusFilter)
-              .map((appointment) => {
-                const StatusIcon = STATUS_ICONS[appointment.status as keyof typeof STATUS_ICONS]
-                return (
-                  <div key={appointment.id} className="p-6 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-purple-600 rounded-full flex items-center justify-center">
-                            <Calendar className="w-6 h-6 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-lg font-medium text-gray-900">
-                              {appointment.patients.nombre_completo}
-                            </h3>
-                            <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
-                              <span>{appointment.services.nombre}</span>
-                              <span>•</span>
-                              <span>{appointment.services.zona}</span>
-                              <span>•</span>
-                              <span>Sesión {appointment.numero_sesion}</span>
-                              {appointment.users && (
-                                <>
-                                  <span>•</span>
-                                  <span>{appointment.users.full_name}</span>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex items-center space-x-2 mt-2">
-                              <Clock className="w-4 h-4 text-gray-400" />
-                              <span className="text-sm text-gray-600">
-                                {format(new Date(appointment.fecha_hora), 'dd MMM yyyy HH:mm', { locale: es })}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        {appointment.precio_sesion && (
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-green-600">
-                              ${appointment.precio_sesion.toLocaleString()}
-                            </p>
-                          </div>
-                        )}
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            STATUS_COLORS[appointment.status as keyof typeof STATUS_COLORS]
-                          }`}>
-                            <StatusIcon className="w-3 h-3 mr-1" />
-                            {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                          </span>
-                          <button
-                            onClick={() => openModal(appointment)}
-                            className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
-                            title="Editar cita"
-                          >
-                            <Calendar className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => deleteAppointment(appointment.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
-                            title="Cancelar cita"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-          ) : (
-            <div className="text-center py-12">
-              <Calendar className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No hay citas</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Comienza programando tu primera cita.
-              </p>
-              <div className="mt-6">
-                <button
-                  onClick={() => openModal()}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nueva Cita
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -602,7 +435,7 @@ export default function Appointments() {
                       onClick={() => setShowModal(false)}
                       className="text-gray-400 hover:text-gray-600"
                     >
-                      <XCircle className="w-6 h-6" />
+                      <X className="w-6 h-6" />
                     </button>
                   </div>
 
@@ -611,97 +444,63 @@ export default function Appointments() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Paciente *
                       </label>
-                      {loadingPatients ? (
-                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
-                          Cargando pacientes...
-                        </div>
-                      ) : (
-                        <select
-                          required
-                          value={formData.patient_id}
-                          onChange={(e) => setFormData(prev => ({ ...prev, patient_id: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                        >
-                          <option value="">Seleccionar paciente</option>
-                          {patients.map((patient) => (
-                            <option key={patient.id} value={patient.id}>
-                              {patient.nombre_completo}
-                              {patient.telefono && ` - ${patient.telefono}`}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      {patients.length === 0 && !loadingPatients && (
-                        <p className="text-sm text-red-600 mt-1">
-                          No hay pacientes disponibles. <a href="/patients" className="underline">Crear paciente</a>
-                        </p>
-                      )}
+                      <select
+                        required
+                        value={formData.patient_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, patient_id: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        <option value="">Seleccionar paciente</option>
+                        {patients.map((patient) => (
+                          <option key={patient.id} value={patient.id}>
+                            {patient.nombre_completo}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Servicio *
                       </label>
-                      {loadingServices ? (
-                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
-                          Cargando servicios...
-                        </div>
-                      ) : (
-                        <select
-                          required
-                          value={formData.service_id}
-                          onChange={(e) => {
-                            const service = services.find(s => s.id === e.target.value)
-                            setFormData(prev => ({ 
-                              ...prev, 
-                              service_id: e.target.value,
-                              duracion_minutos: service?.duracion_minutos?.toString() || ''
-                            }))
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                        >
-                          <option value="">Seleccionar servicio</option>
-                          {services.map((service) => (
-                            <option key={service.id} value={service.id}>
-                              {service.nombre} - {service.zona} (${service.precio_base?.toLocaleString()})
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      {services.length === 0 && !loadingServices && (
-                        <p className="text-sm text-red-600 mt-1">
-                          No hay servicios disponibles. <a href="/services" className="underline">Crear servicio</a>
-                        </p>
-                      )}
+                      <select
+                        required
+                        value={formData.service_id}
+                        onChange={(e) => {
+                          const service = services.find(s => s.id === e.target.value)
+                          setFormData(prev => ({ 
+                            ...prev, 
+                            service_id: e.target.value,
+                            duracion_minutos: service?.duracion_minutos?.toString() || ''
+                          }))
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        <option value="">Seleccionar servicio</option>
+                        {services.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.nombre} - {service.zona} (${service.precio_base?.toLocaleString()})
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Operadora (Opcional)
                       </label>
-                      {loadingUsers ? (
-                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
-                          Cargando usuarios...
-                        </div>
-                      ) : (
-                        <select
-                          value={formData.operadora_id}
-                          onChange={(e) => setFormData(prev => ({ ...prev, operadora_id: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                        >
-                          <option value="">Sin asignar</option>
-                          {users.map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.full_name} ({user.roles?.name || 'Sin rol'})
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      {users.length === 0 && !loadingUsers && (
-                        <p className="text-sm text-yellow-600 mt-1">
-                          No hay usuarios disponibles para asignar como operadora.
-                        </p>
-                      )}
+                      <select
+                        value={formData.operadora_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, operadora_id: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        <option value="">Sin asignar</option>
+                        {users.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.full_name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -732,19 +531,20 @@ export default function Appointments() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Duración (minutos)
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.duracion_minutos}
-                          onChange={(e) => setFormData(prev => ({ ...prev, duracion_minutos: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                          placeholder="60"
-                        />
-                      </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Estado
+                      </label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      >
+                        <option value="agendada">Agendada</option>
+                        <option value="confirmada">Confirmada</option>
+                        <option value="completada">Completada</option>
+                        <option value="cancelada">Cancelada</option>
+                      </select>
                     </div>
 
                     <div>
@@ -758,41 +558,13 @@ export default function Appointments() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                         placeholder="Notas adicionales sobre la cita..."
                       />
-
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Observaciones de Operadora
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={formData.observaciones_operadora}
-                        onChange={(e) => setFormData(prev => ({ ...prev, observaciones_operadora: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                        placeholder="Notas técnicas del tratamiento..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Estado
-                      </label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                      >
-                        <option value="agendada">Agendada</option>
-                        <option value="completada">Completada</option>
-                        <option value="cancelada">Cancelada</option>
-                      </select>
-                    </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                   <button
-                        Observaciones de Caja
+                    type="submit"
                     disabled={loading}
                     className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 text-base font-medium text-white hover:from-pink-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
                   >

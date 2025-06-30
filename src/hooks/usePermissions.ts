@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface RolePermissions {
@@ -7,19 +7,11 @@ interface RolePermissions {
 
 export function usePermissions() {
   const { userProfile } = useAuth()
-  const [permissions, setPermissions] = useState<RolePermissions>({})
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (userProfile) {
-      setPermissions(getPermissionsForRole(userProfile.role))
-      setLoading(false)
-    } else {
-      setLoading(false)
-    }
-  }, [userProfile])
+  const permissions = useMemo<RolePermissions>(() => {
+    if (!userProfile) return {}
 
-  const getPermissionsForRole = (role: string): RolePermissions => {
     const rolePermissions: Record<string, RolePermissions> = {
       administrador: {
         dashboard: ['read', 'create', 'update', 'delete'],
@@ -30,9 +22,7 @@ export function usePermissions() {
         reports: ['read', 'create', 'update', 'delete'],
         import: ['read', 'create', 'update', 'delete'],
         roles: ['read', 'create', 'update', 'delete'],
-        users: ['read', 'create', 'update', 'delete'],
-        testing: ['read', 'create', 'update', 'delete'],
-        connection: ['read']
+        users: ['read', 'create', 'update', 'delete']
       },
       cajero: {
         dashboard: ['read'],
@@ -55,65 +45,79 @@ export function usePermissions() {
       }
     }
 
-    return rolePermissions[role] || { dashboard: ['read'] }
-  }
+    return rolePermissions[userProfile.role] || { dashboard: ['read'] }
+  }, [userProfile])
 
-  const hasPermission = (module: string, action: string): boolean => {
-    if (!userProfile || loading) {
-      return false
-    }
+  useEffect(() => {
+    setLoading(false)
+  }, [userProfile])
 
-    // Admin siempre tiene todos los permisos
-    if (userProfile.role === 'administrador') {
-      return true
-    }
+  const hasPermission = useMemo(() => 
+    (module: string, action: string): boolean => {
+      if (!userProfile || loading) {
+        return false
+      }
 
-    // Verificar permisos específicos
-    const modulePermissions = permissions[module]
-    return modulePermissions?.includes(action) || false
-  }
+      // Admin siempre tiene todos los permisos
+      if (userProfile.role === 'administrador') {
+        return true
+      }
 
-  const canAccessModule = (module: string): boolean => {
-    return hasPermission(module, 'read')
-  }
+      // Verificar permisos específicos
+      const modulePermissions = permissions[module]
+      return modulePermissions?.includes(action) || false
+    },
+    [userProfile, loading, permissions]
+  )
 
-  const getAccessibleModules = (): string[] => {
-    const allModules = [
-      'dashboard',
-      'patients', 
-      'appointments',
-      'services',
-      'payments',
-      'reports',
-      'import',
-      'roles',
-      'users',
-      'testing',
-      'connection'
-    ]
+  const canAccessModule = useMemo(() => 
+    (module: string): boolean => hasPermission(module, 'read'),
+    [hasPermission]
+  )
 
-    return allModules.filter(module => canAccessModule(module))
-  }
+  const getAccessibleModules = useMemo(() => 
+    (): string[] => {
+      const allModules = [
+        'dashboard',
+        'patients', 
+        'appointments',
+        'services',
+        'payments',
+        'reports',
+        'import',
+        'roles',
+        'users'
+      ]
 
-  const canCreate = (module: string): boolean => {
-    return hasPermission(module, 'create')
-  }
+      return allModules.filter(module => canAccessModule(module))
+    },
+    [canAccessModule]
+  )
 
-  const canUpdate = (module: string): boolean => {
-    return hasPermission(module, 'update')
-  }
+  const canCreate = useMemo(() => 
+    (module: string): boolean => hasPermission(module, 'create'),
+    [hasPermission]
+  )
 
-  const canDelete = (module: string): boolean => {
-    return hasPermission(module, 'delete')
-  }
+  const canUpdate = useMemo(() => 
+    (module: string): boolean => hasPermission(module, 'update'),
+    [hasPermission]
+  )
 
-  const isAdmin = (): boolean => {
-    return userProfile?.role === 'administrador'
-  }
+  const canDelete = useMemo(() => 
+    (module: string): boolean => hasPermission(module, 'delete'),
+    [hasPermission]
+  )
 
-  const getModulePermissions = (module: string): string[] => {
-    return permissions[module] || []
-  }
+  const isAdmin = useMemo(() => 
+    (): boolean => userProfile?.role === 'administrador',
+    [userProfile]
+  )
+
+  const getModulePermissions = useMemo(() => 
+    (module: string): string[] => permissions[module] || [],
+    [permissions]
+  )
 
   return {
     permissions,
@@ -128,9 +132,7 @@ export function usePermissions() {
     getModulePermissions,
     userRole: userProfile?.role || null,
     refreshPermissions: () => {
-      if (userProfile) {
-        setPermissions(getPermissionsForRole(userProfile.role))
-      }
+      // No-op since permissions are computed from userProfile
     }
   }
 }
