@@ -7,7 +7,8 @@ import {
   Calendar,
   DollarSign,
   Download,
-  Filter
+  Filter,
+  AlertCircle
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -33,6 +34,7 @@ export default function Reports() {
   })
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState('6months')
+  const [error, setError] = useState('')
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalPatients: 0,
@@ -48,6 +50,7 @@ export default function Reports() {
   const fetchReportData = async () => {
     try {
       setLoading(true)
+      setError('')
       
       const now = new Date()
       let startDate: Date
@@ -69,29 +72,46 @@ export default function Reports() {
           startDate = subMonths(now, 6)
       }
 
+      console.log('Fetching report data for date range:', startDate.toISOString())
+
       // Fetch payments for revenue analysis
-      const { data: payments } = await supabase
+      const { data: payments, error: paymentsError } = await supabase
         .from('payments')
         .select('*')
         .gte('fecha_pago', startDate.toISOString())
         .order('fecha_pago', { ascending: true })
 
-      // Fetch appointments for service analysis
-      const { data: appointments } = await supabase
+      if (paymentsError) {
+        console.error('Error fetching payments:', paymentsError)
+        throw paymentsError
+      }
+
+      // Fetch appointments for service analysis - using explicit foreign key names
+      const { data: appointments, error: appointmentsError } = await supabase
         .from('appointments')
         .select(`
           *,
-          services(nombre, zona),
-          patients(nombre_completo)
+          services!appointments_service_id_fkey(nombre, zona),
+          patients!appointments_patient_id_fkey(nombre_completo)
         `)
         .gte('fecha_hora', startDate.toISOString())
 
+      if (appointmentsError) {
+        console.error('Error fetching appointments:', appointmentsError)
+        throw appointmentsError
+      }
+
       // Fetch patients for growth analysis
-      const { data: patients } = await supabase
+      const { data: patients, error: patientsError } = await supabase
         .from('patients')
         .select('created_at')
         .gte('created_at', startDate.toISOString())
         .order('created_at', { ascending: true })
+
+      if (patientsError) {
+        console.error('Error fetching patients:', patientsError)
+        throw patientsError
+      }
 
       // Process monthly revenue
       const monthlyRevenue = processMonthlyRevenue(payments || [])
@@ -145,8 +165,11 @@ export default function Reports() {
         growthRate
       })
 
+      console.log('Report data processed successfully')
+
     } catch (error) {
       console.error('Error fetching report data:', error)
+      setError('Error al cargar los datos del reporte: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -337,6 +360,17 @@ Tecnología Sopranoice
           </button>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">

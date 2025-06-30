@@ -37,7 +37,7 @@ interface Appointment {
     zona: string
     duracion_minutos: number | null
   } | null
-  users: {
+  operadora: {
     full_name: string
   } | null
 }
@@ -98,18 +98,20 @@ export default function Appointments() {
         currentDate: currentDate.toISOString()
       })
 
-      // Fetch appointments with detailed logging
+      // Fetch appointments with explicit alias to avoid relationship conflicts
       const appointmentsQuery = supabase
         .from('appointments')
         .select(`
           *,
-          patients!inner(nombre_completo, telefono),
-          services!inner(nombre, zona, duracion_minutos),
-          users(full_name)
+          patients!appointments_patient_id_fkey(nombre_completo, telefono),
+          services!appointments_service_id_fkey(nombre, zona, duracion_minutos),
+          operadora:users!appointments_operadora_id_fkey(full_name)
         `)
         .gte('fecha_hora', startDate.toISOString())
         .lte('fecha_hora', endDate.toISOString())
         .order('fecha_hora', { ascending: true })
+
+      console.log('📅 Executing appointments query...')
 
       const appointmentsRes = await appointmentsQuery
 
@@ -165,7 +167,7 @@ export default function Appointments() {
       setPatients(patientsRes.data || [])
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
-      
+
       console.log('✅ Data loaded successfully:', {
         appointments: appointmentsData.length,
         patients: patientsRes.data?.length || 0,

@@ -39,7 +39,7 @@ interface Payment {
     nombre_completo: string
     telefono: string | null
   }
-  users: {
+  cajera: {
     full_name: string
   } | null
   appointments?: {
@@ -57,7 +57,6 @@ interface PendingAppointment {
   service_id: string
   fecha_hora: string
   numero_sesion: number
-  precio_sesion: number
   patients: {
     nombre_completo: string
     telefono: string | null
@@ -79,7 +78,6 @@ interface CartItem {
   amount: number
   original_amount: number
 }
-import { validatePaymentData, sanitizePaymentData, getValidUserId } from '../utils/databaseValidation'
 
 const PAYMENT_METHODS = [
   { value: 'efectivo', label: 'Efectivo', color: 'bg-green-100 text-green-800' },
@@ -96,6 +94,7 @@ export default function Payments() {
   const [methodFilter, setMethodFilter] = useState('')
   const [dateFilter, setDateFilter] = useState('')
   const [showPOSModal, setShowPOSModal] = useState(false)
+  const [error, setError] = useState('')
   const [stats, setStats] = useState({
     totalToday: 0,
     totalMonth: 0,
@@ -118,12 +117,15 @@ export default function Payments() {
 
   const fetchPayments = async () => {
     try {
+      setError('')
+      console.log('Fetching payments...')
+      
       const { data, error } = await supabase
         .from('payments')
         .select(`
           *,
-          patients(nombre_completo, telefono),
-          users(full_name),
+          patients!payments_patient_id_fkey(nombre_completo, telefono),
+          cajera:users!payments_cajera_id_fkey(full_name),
           appointments(
             numero_sesion,
             services(nombre, zona)
@@ -132,10 +134,16 @@ export default function Payments() {
         .order('fecha_pago', { ascending: false })
         .limit(100)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching payments:', error)
+        throw error
+      }
+      
+      console.log('Payments fetched successfully:', data?.length || 0)
       setPayments(data || [])
     } catch (error) {
-      console.error('Error fetching payments:', error)
+      console.error('Error in fetchPayments:', error)
+      setError('Error al cargar los pagos: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -195,12 +203,10 @@ export default function Payments() {
           service_id,
           fecha_hora,
           numero_sesion,
-          precio_sesion,
-          patients(nombre_completo, telefono),
-          services(nombre, zona, precio_base)
+          patients!appointments_patient_id_fkey(nombre_completo, telefono),
+          services!appointments_service_id_fkey(nombre, zona, precio_base)
         `)
         .in('status', ['agendada', 'confirmada', 'completada'])
-        .is('metodo_pago', null)
         .order('fecha_hora', { ascending: true })
 
       if (error) throw error
@@ -213,7 +219,7 @@ export default function Payments() {
   const addToCart = (appointment: PendingAppointment) => {
     const existingItem = cart.find(item => item.appointment_id === appointment.id)
     if (!existingItem) {
-      const amount = appointment.precio_sesion || appointment.services.precio_base
+      const amount = appointment.services.precio_base
       setCart(prev => [...prev, {
         appointment_id: appointment.id,
         patient_id: appointment.patient_id,
@@ -261,27 +267,9 @@ export default function Payments() {
     
     const total = calculateTotal()
 
-    // Validar datos básicos del pago
-    const paymentValidation = await validatePaymentData({
-      patient_id: cart[0]?.patient_id,
-      monto: total,
-      metodo_pago: paymentMethod,
-      cajera_id: userProfile?.id,
-      monto_recibido: amountPaid
-    })
-
-    if (!paymentValidation.isValid) {
-      alert(`Errores en el pago:\n${paymentValidation.errors.join('\n')}`)
-      return
-    }
-
-    // Mostrar advertencias si las hay
-    if (paymentValidation.warnings.length > 0) {
-      console.warn('Payment warnings:', paymentValidation.warnings)
-    }
-
     try {
       setLoading(true)
+      setError('')
       const ticketNumber = `TKT-${Date.now()}`
 
       // Group cart items by patient
@@ -297,21 +285,18 @@ export default function Payments() {
       for (const [patientId, items] of Object.entries(patientGroups)) {
         const patientTotal = items.reduce((sum, item) => sum + item.amount, 0)
         
-        // Obtener un cajera_id válido
-        const validCajeraId = await getValidUserId(userProfile?.id)
-        
         // Create main payment record
-        const paymentData = await sanitizePaymentData({
+        const paymentData = {
           patient_id: patientId,
           appointment_id: null, // Para el pago principal del grupo
           monto: patientTotal,
           metodo_pago: paymentMethod,
-          cajera_id: validCajeraId,
+          cajera_id: userProfile?.id || null,
           observaciones: `Ticket: ${ticketNumber} - ${items.length} sesión(es)`,
           tipo_pago: 'pago_sesion',
           banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
           referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}` : null
-        })
+        }
 
         const { data: insertedPayment, error: paymentError } = await supabase
           .from('payments')
@@ -326,23 +311,22 @@ export default function Payments() {
           await supabase
             .from('appointments')
             .update({ 
-              status: 'completada',
-              is_paid: true
+              status: 'completada'
             })
             .eq('id', item.appointment_id)
 
           // Create individual payment record for each appointment
-          const itemPaymentData = await sanitizePaymentData({
+          const itemPaymentData = {
             patient_id: patientId,
             appointment_id: item.appointment_id,
             monto: item.amount,
             metodo_pago: paymentMethod,
-            cajera_id: validCajeraId,
+            cajera_id: userProfile?.id || null,
             observaciones: `${item.service_name} - Sesión ${item.session_number}`,
             tipo_pago: 'pago_sesion',
             banco: paymentMethod === 'bbva' ? 'BBVA' : paymentMethod === 'clip' ? 'Clip' : null,
             referencia: paymentMethod !== 'efectivo' ? `REF-${Date.now()}-${item.appointment_id.slice(-4)}` : null
-          })
+          }
 
           await supabase
             .from('payments')
@@ -368,7 +352,9 @@ export default function Payments() {
       alert('Pago procesado exitosamente')
     } catch (error) {
       console.error('Error processing payment:', error)
-      alert('Error al procesar el pago. Inténtalo de nuevo.')
+      const errorMessage = 'Error al procesar el pago: ' + (error as Error).message
+      setError(errorMessage)
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -464,7 +450,7 @@ export default function Payments() {
         payment.patients.telefono || '',
         payment.monto,
         payment.metodo_pago,
-        payment.users?.full_name || '',
+        payment.cajera?.full_name || '',
         payment.referencia || '',
         payment.appointments?.services?.nombre || '',
         payment.appointments?.numero_sesion || ''
@@ -530,6 +516,17 @@ export default function Payments() {
           </button>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <span className="text-red-800 font-medium">Error:</span>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -651,10 +648,10 @@ export default function Payments() {
                               <Calendar className="w-4 h-4 mr-1" />
                               {format(new Date(payment.fecha_pago), 'dd MMM yyyy HH:mm', { locale: es })}
                             </div>
-                            {payment.users && (
+                            {payment.cajera && (
                               <div className="flex items-center">
                                 <User className="w-4 h-4 mr-1" />
-                                {payment.users.full_name}
+                                {payment.cajera.full_name}
                               </div>
                             )}
                             {payment.appointments?.services && (
@@ -736,6 +733,15 @@ export default function Payments() {
                   </button>
                 </div>
 
+                {error && (
+                  <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="flex items-center">
+                      <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                      <span className="text-red-800 text-sm">{error}</span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Pending Appointments */}
                   <div className="lg:col-span-2">
@@ -782,7 +788,7 @@ export default function Payments() {
                             </div>
                             <div className="text-right">
                               <p className="text-lg font-bold text-green-600">
-                                ${(appointment.precio_sesion || appointment.services.precio_base).toLocaleString()}
+                                ${appointment.services.precio_base.toLocaleString()}
                               </p>
                               <button
                                 onClick={(e) => {
