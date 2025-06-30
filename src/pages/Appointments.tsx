@@ -88,6 +88,11 @@ export default function Appointments() {
       const startDate = startOfMonth(currentDate)
       const endDate = endOfMonth(currentDate)
 
+      console.log('Fetching appointments for:', {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      })
+
       // Fetch data concurrently
       const [appointmentsRes, patientsRes, servicesRes, usersRes] = await Promise.all([
         supabase
@@ -118,13 +123,40 @@ export default function Appointments() {
           .order('full_name')
       ])
 
+      console.log('Appointments response:', appointmentsRes)
+      console.log('Appointments data:', appointmentsRes.data)
+      console.log('Appointments error:', appointmentsRes.error)
+
+      if (appointmentsRes.error) {
+        console.error('Error fetching appointments:', appointmentsRes.error)
+        throw appointmentsRes.error
+      }
+
+      if (patientsRes.error) {
+        console.error('Error fetching patients:', patientsRes.error)
+        throw patientsRes.error
+      }
+
+      if (servicesRes.error) {
+        console.error('Error fetching services:', servicesRes.error)
+        throw servicesRes.error
+      }
+
+      if (usersRes.error) {
+        console.error('Error fetching users:', usersRes.error)
+        throw usersRes.error
+      }
+
       setAppointments(appointmentsRes.data || [])
       setPatients(patientsRes.data || [])
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
       
+      console.log('Set appointments:', appointmentsRes.data?.length || 0)
+      
     } catch (error) {
       console.error('Error fetching data:', error)
+      alert('Error al cargar los datos. Por favor recarga la página.')
     } finally {
       setLoading(false)
     }
@@ -137,10 +169,26 @@ export default function Appointments() {
   }
 
   const getAppointmentsForDate = (date: Date) => {
-    return appointments.filter(appointment => 
-      isSameDay(new Date(appointment.fecha_hora), date) &&
-      (!statusFilter || appointment.status === statusFilter)
-    )
+    const dayAppointments = appointments.filter(appointment => {
+      const appointmentDate = new Date(appointment.fecha_hora)
+      const isSameDate = isSameDay(appointmentDate, date)
+      const matchesFilter = !statusFilter || appointment.status === statusFilter
+      
+      console.log('Checking appointment:', {
+        appointmentId: appointment.id,
+        appointmentDate: appointmentDate.toISOString(),
+        checkDate: date.toISOString(),
+        isSameDate,
+        status: appointment.status,
+        statusFilter,
+        matchesFilter
+      })
+      
+      return isSameDate && matchesFilter
+    })
+    
+    console.log(`Appointments for ${date.toDateString()}:`, dayAppointments.length)
+    return dayAppointments
   }
 
   const deleteAppointment = async (appointmentId: string) => {
@@ -199,6 +247,8 @@ export default function Appointments() {
         observaciones_caja: formData.observaciones_caja?.trim() || null,
         is_paid: false
       }
+
+      console.log('Submitting appointment data:', appointmentData)
 
       if (isEditing && selectedAppointment) {
         const { error } = await supabase
@@ -309,6 +359,18 @@ export default function Appointments() {
         </button>
       </div>
 
+      {/* Debug Info */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-medium text-yellow-800 mb-2">Debug Info:</h3>
+          <p className="text-xs text-yellow-700">
+            Total citas cargadas: {appointments.length} | 
+            Mes actual: {format(currentDate, 'MMMM yyyy', { locale: es })} |
+            Filtro: {statusFilter || 'Ninguno'}
+          </p>
+        </div>
+      )}
+
       {/* Calendar Navigation */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -391,7 +453,7 @@ export default function Appointments() {
                           </span>
                         </div>
                         <div className="truncate font-medium">
-                          {appointment.patients.nombre_completo}
+                          {appointment.patients?.nombre_completo || 'Sin paciente'}
                         </div>
                       </div>
                     )
@@ -407,6 +469,24 @@ export default function Appointments() {
           })}
         </div>
       </div>
+
+      {/* Lista de citas si no hay citas en el calendario */}
+      {appointments.length === 0 && !loading && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+          <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay citas programadas</h3>
+          <p className="text-gray-500 mb-4">
+            No se encontraron citas para {format(currentDate, 'MMMM yyyy', { locale: es })}
+          </p>
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Crear Primera Cita
+          </button>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
