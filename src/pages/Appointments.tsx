@@ -29,12 +29,12 @@ interface Appointment {
   patients: {
     nombre_completo: string
     telefono: string | null
-  }
+  } | null
   services: {
     nombre: string
     zona: string
     duracion_minutos: number | null
-  }
+  } | null
   users: {
     full_name: string
   } | null
@@ -67,6 +67,7 @@ export default function Appointments() {
   const [showModal, setShowModal] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<any>({})
   const [formData, setFormData] = useState({
     patient_id: '',
     service_id: '',
@@ -88,24 +89,45 @@ export default function Appointments() {
       const startDate = startOfMonth(currentDate)
       const endDate = endOfMonth(currentDate)
 
-      console.log('Fetching appointments for:', {
+      console.log('🔍 Fetching appointments for:', {
         startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
+        endDate: endDate.toISOString(),
+        currentDate: currentDate.toISOString()
       })
 
-      // Fetch data concurrently
-      const [appointmentsRes, patientsRes, servicesRes, usersRes] = await Promise.all([
-        supabase
-          .from('appointments')
-          .select(`
-            *,
-            patients(nombre_completo, telefono),
-            services(nombre, zona, duracion_minutos),
-            users(full_name)
-          `)
-          .gte('fecha_hora', startDate.toISOString())
-          .lte('fecha_hora', endDate.toISOString())
-          .order('fecha_hora', { ascending: true }),
+      // Test basic connectivity first
+      const { data: testData, error: testError } = await supabase
+        .from('appointments')
+        .select('count')
+        .limit(1)
+
+      console.log('🔗 Supabase connectivity test:', { testData, testError })
+
+      // Fetch appointments with detailed logging
+      const appointmentsQuery = supabase
+        .from('appointments')
+        .select(`
+          *,
+          patients!inner(nombre_completo, telefono),
+          services!inner(nombre, zona, duracion_minutos),
+          users(full_name)
+        `)
+        .gte('fecha_hora', startDate.toISOString())
+        .lte('fecha_hora', endDate.toISOString())
+        .order('fecha_hora', { ascending: true })
+
+      console.log('📅 Appointments query:', appointmentsQuery)
+
+      const appointmentsRes = await appointmentsQuery
+
+      console.log('📊 Appointments response:', {
+        data: appointmentsRes.data,
+        error: appointmentsRes.error,
+        count: appointmentsRes.data?.length || 0
+      })
+
+      // Fetch other data concurrently
+      const [patientsRes, servicesRes, usersRes] = await Promise.all([
         supabase
           .from('patients')
           .select('id, nombre_completo, telefono')
@@ -123,40 +145,80 @@ export default function Appointments() {
           .order('full_name')
       ])
 
-      console.log('Appointments response:', appointmentsRes)
-      console.log('Appointments data:', appointmentsRes.data)
-      console.log('Appointments error:', appointmentsRes.error)
-
+      // Check for errors
       if (appointmentsRes.error) {
-        console.error('Error fetching appointments:', appointmentsRes.error)
+        console.error('❌ Error fetching appointments:', appointmentsRes.error)
         throw appointmentsRes.error
       }
 
       if (patientsRes.error) {
-        console.error('Error fetching patients:', patientsRes.error)
+        console.error('❌ Error fetching patients:', patientsRes.error)
         throw patientsRes.error
       }
 
       if (servicesRes.error) {
-        console.error('Error fetching services:', servicesRes.error)
+        console.error('❌ Error fetching services:', servicesRes.error)
         throw servicesRes.error
       }
 
       if (usersRes.error) {
-        console.error('Error fetching users:', usersRes.error)
+        console.error('❌ Error fetching users:', usersRes.error)
         throw usersRes.error
       }
 
-      setAppointments(appointmentsRes.data || [])
+      // Set data
+      const appointmentsData = appointmentsRes.data || []
+      setAppointments(appointmentsData)
       setPatients(patientsRes.data || [])
       setServices(servicesRes.data || [])
       setUsers(usersRes.data || [])
       
-      console.log('Set appointments:', appointmentsRes.data?.length || 0)
+      // Update debug info
+      setDebugInfo({
+        appointmentsCount: appointmentsData.length,
+        patientsCount: patientsRes.data?.length || 0,
+        servicesCount: servicesRes.data?.length || 0,
+        usersCount: usersRes.data?.length || 0,
+        dateRange: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString()
+        },
+        sampleAppointment: appointmentsData[0] || null
+      })
+
+      console.log('✅ Data loaded successfully:', {
+        appointments: appointmentsData.length,
+        patients: patientsRes.data?.length || 0,
+        services: servicesRes.data?.length || 0,
+        users: usersRes.data?.length || 0
+      })
+
+      // If no appointments found, let's check if there are any appointments at all
+      if (appointmentsData.length === 0) {
+        const { data: allAppointments, error: allError } = await supabase
+          .from('appointments')
+          .select('id, fecha_hora, status')
+          .limit(10)
+
+        console.log('🔍 All appointments check:', {
+          data: allAppointments,
+          error: allError,
+          count: allAppointments?.length || 0
+        })
+
+        setDebugInfo(prev => ({
+          ...prev,
+          totalAppointmentsInDB: allAppointments?.length || 0,
+          sampleAllAppointments: allAppointments || []
+        }))
+      }
       
     } catch (error) {
-      console.error('Error fetching data:', error)
-      alert('Error al cargar los datos. Por favor recarga la página.')
+      console.error('💥 Error fetching data:', error)
+      setDebugInfo(prev => ({
+        ...prev,
+        error: error.message || 'Unknown error'
+      }))
     } finally {
       setLoading(false)
     }
@@ -170,24 +232,18 @@ export default function Appointments() {
 
   const getAppointmentsForDate = (date: Date) => {
     const dayAppointments = appointments.filter(appointment => {
-      const appointmentDate = new Date(appointment.fecha_hora)
-      const isSameDate = isSameDay(appointmentDate, date)
-      const matchesFilter = !statusFilter || appointment.status === statusFilter
-      
-      console.log('Checking appointment:', {
-        appointmentId: appointment.id,
-        appointmentDate: appointmentDate.toISOString(),
-        checkDate: date.toISOString(),
-        isSameDate,
-        status: appointment.status,
-        statusFilter,
-        matchesFilter
-      })
-      
-      return isSameDate && matchesFilter
+      try {
+        const appointmentDate = new Date(appointment.fecha_hora)
+        const isSameDate = isSameDay(appointmentDate, date)
+        const matchesFilter = !statusFilter || appointment.status === statusFilter
+        
+        return isSameDate && matchesFilter
+      } catch (error) {
+        console.error('Error processing appointment date:', error, appointment)
+        return false
+      }
     })
     
-    console.log(`Appointments for ${date.toDateString()}:`, dayAppointments.length)
     return dayAppointments
   }
 
@@ -205,7 +261,7 @@ export default function Appointments() {
 
       if (error) throw error
       
-      await fetchData() // Refrescar datos después de cancelar
+      await fetchData()
       alert('Cita cancelada exitosamente')
     } catch (error) {
       console.error('Error canceling appointment:', error)
@@ -218,7 +274,6 @@ export default function Appointments() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validaciones básicas
     if (!formData.patient_id) {
       alert('Debe seleccionar un paciente')
       return
@@ -248,7 +303,7 @@ export default function Appointments() {
         is_paid: false
       }
 
-      console.log('Submitting appointment data:', appointmentData)
+      console.log('💾 Submitting appointment data:', appointmentData)
 
       if (isEditing && selectedAppointment) {
         const { error } = await supabase
@@ -265,9 +320,7 @@ export default function Appointments() {
         if (error) throw error
       }
 
-      // CRUCIAL: Refrescar los datos después de crear/actualizar
       await fetchData()
-      
       setShowModal(false)
       resetForm()
       alert(isEditing ? 'Cita actualizada exitosamente' : 'Cita creada exitosamente')
@@ -320,6 +373,47 @@ export default function Appointments() {
     setShowModal(true)
   }
 
+  // Create sample appointment for testing
+  const createSampleAppointment = async () => {
+    if (patients.length === 0 || services.length === 0) {
+      alert('Necesitas tener pacientes y servicios para crear una cita de prueba')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      tomorrow.setHours(10, 0, 0, 0)
+
+      const sampleData = {
+        patient_id: patients[0].id,
+        service_id: services[0].id,
+        fecha_hora: tomorrow.toISOString(),
+        numero_sesion: 1,
+        status: 'agendada',
+        observaciones_caja: 'Cita de prueba creada automáticamente',
+        is_paid: false
+      }
+
+      console.log('🧪 Creating sample appointment:', sampleData)
+
+      const { error } = await supabase
+        .from('appointments')
+        .insert([sampleData])
+
+      if (error) throw error
+
+      await fetchData()
+      alert('Cita de prueba creada exitosamente')
+    } catch (error) {
+      console.error('Error creating sample appointment:', error)
+      alert('Error al crear cita de prueba: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   if (loading && appointments.length === 0) {
     return (
       <div className="px-4 sm:px-6 lg:px-8">
@@ -350,24 +444,49 @@ export default function Appointments() {
             Programa y administra las citas de depilación láser
           </p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="mt-4 sm:mt-0 inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-all"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Nueva Cita
-        </button>
+        <div className="flex space-x-2">
+          <button
+            onClick={createSampleAppointment}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            🧪 Crear Cita de Prueba
+          </button>
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-all"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Cita
+          </button>
+        </div>
       </div>
 
       {/* Debug Info */}
       {process.env.NODE_ENV === 'development' && (
-        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">Debug Info:</h3>
-          <p className="text-xs text-yellow-700">
-            Total citas cargadas: {appointments.length} | 
-            Mes actual: {format(currentDate, 'MMMM yyyy', { locale: es })} |
-            Filtro: {statusFilter || 'Ninguno'}
-          </p>
+        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-medium text-yellow-800 mb-2">🔍 Debug Info:</h3>
+          <div className="text-xs text-yellow-700 space-y-1">
+            <p><strong>Citas cargadas:</strong> {debugInfo.appointmentsCount || 0}</p>
+            <p><strong>Pacientes:</strong> {debugInfo.patientsCount || 0}</p>
+            <p><strong>Servicios:</strong> {debugInfo.servicesCount || 0}</p>
+            <p><strong>Usuarios:</strong> {debugInfo.usersCount || 0}</p>
+            <p><strong>Mes actual:</strong> {format(currentDate, 'MMMM yyyy', { locale: es })}</p>
+            <p><strong>Filtro:</strong> {statusFilter || 'Ninguno'}</p>
+            {debugInfo.totalAppointmentsInDB !== undefined && (
+              <p><strong>Total citas en BD:</strong> {debugInfo.totalAppointmentsInDB}</p>
+            )}
+            {debugInfo.error && (
+              <p className="text-red-600"><strong>Error:</strong> {debugInfo.error}</p>
+            )}
+            {debugInfo.sampleAppointment && (
+              <details className="mt-2">
+                <summary className="cursor-pointer">Ver muestra de cita</summary>
+                <pre className="mt-1 text-xs bg-yellow-100 p-2 rounded overflow-auto">
+                  {JSON.stringify(debugInfo.sampleAppointment, null, 2)}
+                </pre>
+              </details>
+            )}
+          </div>
         </div>
       )}
 
@@ -470,7 +589,7 @@ export default function Appointments() {
         </div>
       </div>
 
-      {/* Lista de citas si no hay citas en el calendario */}
+      {/* Empty State */}
       {appointments.length === 0 && !loading && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
           <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
@@ -478,13 +597,22 @@ export default function Appointments() {
           <p className="text-gray-500 mb-4">
             No se encontraron citas para {format(currentDate, 'MMMM yyyy', { locale: es })}
           </p>
-          <button
-            onClick={() => openModal()}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Crear Primera Cita
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => openModal()}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Crear Primera Cita
+            </button>
+            <br />
+            <button
+              onClick={createSampleAppointment}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            >
+              🧪 Crear Cita de Prueba
+            </button>
+          </div>
         </div>
       )}
 
